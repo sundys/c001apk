@@ -3,8 +3,8 @@ package com.example.c001apk.ui.message
 import android.annotation.SuppressLint
 import android.graphics.Color
 import android.view.LayoutInflater
-import android.view.View
 import android.view.ViewGroup
+import androidx.core.view.isVisible
 import androidx.recyclerview.widget.RecyclerView
 import com.example.c001apk.R
 import com.example.c001apk.databinding.ItemMessageMessBinding
@@ -13,7 +13,6 @@ import com.example.c001apk.util.CookieUtil.atcommentme
 import com.example.c001apk.util.CookieUtil.atme
 import com.example.c001apk.util.CookieUtil.contacts_follow
 import com.example.c001apk.util.CookieUtil.feedlike
-import com.example.c001apk.util.CookieUtil.message
 import com.example.c001apk.util.IntentUtil
 import com.example.c001apk.util.PrefManager
 
@@ -25,8 +24,10 @@ class MessageThirdAdapter
 
     @SuppressLint("NotifyDataSetChanged")
     fun setBadgeList(badgeList: List<Int>) {
-        this.badgeList = badgeList
-        notifyDataSetChanged()
+        if (badgeList.isNotEmpty()) {
+            this.badgeList = badgeList
+            notifyDataSetChanged()
+        }
     }
 
     private val messTitle = ArrayList<String>()
@@ -70,33 +71,30 @@ class MessageThirdAdapter
         init {
             if (PrefManager.isLogin) {
                 itemView.setOnClickListener {
-                    binding.badge.visibility = View.GONE
+                    binding.badge.isVisible = false
                     IntentUtil.startActivity<MessageActivity>(itemView.context) {
                         when (binding.title.text) {
                             "@我的动态" -> {
-                                atme = 0
+                                atme = null
                                 putExtra("type", "atMe")
                             }
 
                             "@我的评论" -> {
-                                atcommentme = 0
+                                atcommentme = null
                                 putExtra("type", "atCommentMe")
                             }
 
                             "我收到的赞" -> {
-                                feedlike = 0
+                                feedlike = null
                                 putExtra("type", "feedLike")
                             }
 
                             "好友关注" -> {
-                                contacts_follow = 0
+                                contacts_follow = null
                                 putExtra("type", "contactsFollow")
                             }
 
-                            "私信" -> {
-                                message = 0
-                                putExtra("type", "list")
-                            }
+                            "私信" -> putExtra("type", "list")
                         }
                     }
                 }
@@ -109,13 +107,13 @@ class MessageThirdAdapter
             binding.logo.setBackgroundDrawable(itemView.context.getDrawable(logoList[bindingAdapterPosition]))
             if (!badgeList.isNullOrEmpty())
                 badgeList.let {
-                    if (it[bindingAdapterPosition] != 0) {
-                        binding.badge.visibility = View.VISIBLE
+                    if (it[bindingAdapterPosition] > 0) {
+                        binding.badge.isVisible = true
                         binding.badge.text =
                             if (it[bindingAdapterPosition] > 99) "99+"
                             else it[bindingAdapterPosition].toString()
                     } else
-                        binding.badge.visibility = View.GONE
+                        binding.badge.isVisible = false
                 }
             binding.executePendingBindings()
         }

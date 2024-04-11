@@ -1,81 +1,56 @@
 package com.example.c001apk.ui.feed
 
 import android.annotation.SuppressLint
-import android.os.Bundle
-import android.view.View
 import androidx.activity.viewModels
 import com.example.c001apk.R
-import com.example.c001apk.databinding.ActivityFeedBinding
-import com.example.c001apk.ui.base.BaseActivity
+import com.example.c001apk.adapter.LoadingState
+import com.example.c001apk.ui.base.BaseViewActivity
+import com.example.c001apk.ui.feed.question.FeedQuestionFragment
+import com.example.c001apk.ui.feed.vote.FeedVoteFragment
 import dagger.hilt.android.AndroidEntryPoint
+import dagger.hilt.android.lifecycle.withCreationCallback
 
 @AndroidEntryPoint
-class FeedActivity : BaseActivity<ActivityFeedBinding>() {
+class FeedActivity : BaseViewActivity<FeedViewModel>() {
 
-    private val viewModel by viewModels<FeedViewModel>()
-
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-
-        viewModel.id = intent.getStringExtra("id")
-        viewModel.frid = intent.getStringExtra("rid")
-        if (viewModel.isViewReply == null)
-            viewModel.isViewReply = intent.getBooleanExtra("viewReply", false)
-
-        binding.errorLayout.retry.setOnClickListener {
-            binding.errorLayout.parent.visibility = View.GONE
-            getFeedData()
-        }
-
-        if (supportFragmentManager.findFragmentById(R.id.feedFragment) == null && viewModel.feedType == null) {
-            getFeedData()
-        } else {
-            doNext()
-        }
-
-
-        viewModel.doNext.observe(this) { event ->
-            event?.getContentIfNotHandledOrReturnNull()?.let {
-                when (it.first) {
-                    1 -> showErrorMessage(it.second.toString())
-                    2 -> doNext()
-                    3 -> binding.errorLayout.parent.visibility = View.VISIBLE
-                }
-                binding.indicator.parent.isIndeterminate = false
-                binding.indicator.parent.visibility = View.GONE
-
+    override val viewModel by viewModels<FeedViewModel>(
+        extrasProducer = {
+            defaultViewModelCreationExtras.withCreationCallback<FeedViewModel.Factory> { factory ->
+                factory.create(
+                    intent.getStringExtra("id").orEmpty(),
+                    intent.getStringExtra("rid"),
+                    intent.getBooleanExtra("viewReply", false),
+                )
             }
         }
+    )
 
+    override fun initData() {
+        if (viewModel.isAInit) {
+            viewModel.isAInit = false
+            viewModel.activityState.value = LoadingState.Loading
+        }
     }
 
-    private fun getFeedData() {
-        binding.indicator.parent.isIndeterminate = true
-        binding.indicator.parent.visibility = View.VISIBLE
+    override fun fetchData() {
         viewModel.fetchFeedData()
     }
 
-    private fun showErrorMessage(errorMessage: String) {
-        binding.errorMessage.parent.visibility = View.VISIBLE
-        binding.errorMessage.parent.text = errorMessage
-    }
-
     @SuppressLint("CommitTransaction")
-    private fun doNext() {
-        if (viewModel.feedType != "vote") // not done yet
-            if (supportFragmentManager.findFragmentById(R.id.feedFragment) == null) {
-                supportFragmentManager
-                    .beginTransaction()
-                    .replace(
-                        R.id.feedFragment,
-                        /*when (viewModel.feedType) {
-                            "vote" -> FeedVoteFragment.newInstance(viewModel.id)
-                            else -> FeedFragmentNew()
-                        }*/
-                        FeedFragment()
-                    )
-                    .commit()
-            }
+    override fun beginTransaction() {
+        if (supportFragmentManager.findFragmentById(R.id.fragmentContainer) == null) {
+            supportFragmentManager
+                .beginTransaction()
+                .replace(
+                    R.id.fragmentContainer,
+                    when (viewModel.feedType) {
+                        "vote" -> FeedVoteFragment()
+                        "question" -> FeedQuestionFragment()
+                        else -> FeedFragment()
+                    }
+                )
+                .commit()
+        }
     }
 
 }

@@ -1,183 +1,145 @@
 package com.example.c001apk.ui.applist
 
-import android.content.res.Configuration
+import android.os.Build.VERSION.SDK_INT
 import android.os.Bundle
 import android.view.Gravity
+import android.view.LayoutInflater
 import android.view.View
+import android.view.ViewGroup
 import androidx.coordinatorlayout.widget.CoordinatorLayout
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.isVisible
+import androidx.core.view.updateLayoutParams
 import androidx.fragment.app.viewModels
 import androidx.recyclerview.widget.ConcatAdapter
-import androidx.recyclerview.widget.LinearLayoutManager
-import androidx.recyclerview.widget.RecyclerView
-import androidx.recyclerview.widget.StaggeredGridLayoutManager
 import com.absinthe.libraries.utils.extensions.dp
 import com.example.c001apk.R
 import com.example.c001apk.adapter.HeaderAdapter
-import com.example.c001apk.databinding.FragmentHomeFeedBinding
+import com.example.c001apk.adapter.PlaceHolderAdapter
+import com.example.c001apk.databinding.BaseRefreshRecyclerviewBinding
 import com.example.c001apk.ui.appupdate.AppUpdateActivity
-import com.example.c001apk.ui.base.BaseFragment
+import com.example.c001apk.ui.base.BaseViewFragment
 import com.example.c001apk.ui.home.IOnTabClickContainer
 import com.example.c001apk.ui.home.IOnTabClickListener
 import com.example.c001apk.ui.main.INavViewContainer
-import com.example.c001apk.util.DensityTool
+import com.example.c001apk.ui.main.IOnBottomClickContainer
+import com.example.c001apk.ui.main.IOnBottomClickListener
 import com.example.c001apk.util.IntentUtil
-import com.example.c001apk.view.LinearItemDecoration
-import com.example.c001apk.view.StaggerItemDecoration
+import com.example.c001apk.util.setSpaceFooterView
 import com.google.android.material.behavior.HideBottomViewOnScrollBehavior
-import com.google.android.material.color.MaterialColors
 import com.google.android.material.floatingactionbutton.FloatingActionButton
 import dagger.hilt.android.AndroidEntryPoint
 
 @AndroidEntryPoint
-class AppListFragment : BaseFragment<FragmentHomeFeedBinding>(), IOnTabClickListener {
+class AppListFragment : BaseViewFragment<AppListViewModel>(), IOnTabClickListener,
+    IOnBottomClickListener {
 
-    private val viewModel by viewModels<AppListViewModel>()
-    private lateinit var mAdapter: AppListAdapter
-    private lateinit var mLayoutManager: LinearLayoutManager
+    override val viewModel by viewModels<AppListViewModel>()
+    private lateinit var appsAdapter: AppListAdapter
+    private val placeHolderAdapter = PlaceHolderAdapter()
+    private lateinit var fab: FloatingActionButton
     private val fabViewBehavior by lazy { HideBottomViewOnScrollBehavior<FloatingActionButton>() }
-    private lateinit var sLayoutManager: StaggeredGridLayoutManager
 
-    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
-        super.onViewCreated(view, savedInstanceState)
-
-        if (!viewModel.isInit) {
-            initFab()
-            initView()
-            initData()
-            initRefresh()
-            initScroll()
-            initObserve()
-        }
-
+    override fun onCreateView(
+        inflater: LayoutInflater,
+        container: ViewGroup?,
+        savedInstanceState: Bundle?
+    ): View {
+        _binding = BaseRefreshRecyclerviewBinding.inflate(inflater, container, false)
+        fab = FloatingActionButton(requireContext())
+        initFab()
+        _binding?.root?.addView(fab)
+        return binding.root
     }
 
-    private fun initData() {
-        if (viewModel.listSize == -1) {
-            binding.indicator.parent.isIndeterminate = true
-            binding.indicator.parent.visibility = View.VISIBLE
-            viewModel.getItems(requireContext())
+    override fun initAdapter() {
+        appsAdapter = AppListAdapter()
+        mAdapter = ConcatAdapter(HeaderAdapter(), appsAdapter)
+    }
+
+    override fun fetchData() {
+        viewModel.getItems(requireContext())
+    }
+
+    override fun initView() {
+        super.initView()
+        binding.vfContainer.setOnDisplayedChildChangedListener {
+            binding.recyclerView.setSpaceFooterView(placeHolderAdapter)
         }
     }
 
-    private fun initObserve() {
+    override fun initObserve() {
+        super.initObserve()
 
         viewModel.items.observe(viewLifecycleOwner) {
-            mAdapter.submitList(it)
-            binding.indicator.parent.isIndeterminate = false
-            binding.indicator.parent.visibility = View.GONE
+            appsAdapter.submitList(it)
             binding.swipeRefresh.isRefreshing = false
+            if (binding.vfContainer.displayedChild != it.size)
+                binding.vfContainer.displayedChild = it.size
         }
 
         viewModel.setFab.observe(viewLifecycleOwner) {
             if (it)
-                binding.fab.visibility = View.VISIBLE
+                fab.isVisible = true
         }
-
     }
 
     private fun initFab() {
-        binding.fab.apply {
+        fab.apply {
             setImageResource(R.drawable.ic_update)
-            val lp = CoordinatorLayout.LayoutParams(
+            if (SDK_INT >= 26)
+                tooltipText = getString(R.string.update)
+            layoutParams = CoordinatorLayout.LayoutParams(
                 CoordinatorLayout.LayoutParams.WRAP_CONTENT,
                 CoordinatorLayout.LayoutParams.WRAP_CONTENT
-            )
-            lp.setMargins(
-                0, 0, 25.dp,
-                if (resources.configuration.orientation == Configuration.ORIENTATION_PORTRAIT)
-                    DensityTool.getNavigationBarHeight(requireContext()) + 105.dp
-                else
-                    25.dp
-            )
-            lp.gravity = Gravity.BOTTOM or Gravity.END
-            layoutParams = lp
-            (layoutParams as CoordinatorLayout.LayoutParams).behavior = fabViewBehavior
+            ).apply {
+                gravity = Gravity.BOTTOM or Gravity.END
+                behavior = fabViewBehavior
+            }
             setOnClickListener {
                 IntentUtil.startActivity<AppUpdateActivity>(requireContext()) {
                     putParcelableArrayListExtra("list", viewModel.appsUpdate)
                 }
             }
+            isVisible = false
         }
-    }
-
-    private fun initScroll() {
-        binding.recyclerView.addOnScrollListener(object : RecyclerView.OnScrollListener() {
-            override fun onScrollStateChanged(recyclerView: RecyclerView, newState: Int) {}
-            override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
-                super.onScrolled(recyclerView, dx, dy)
-                if (viewModel.listSize != -1 && isAdded) {
-                    if (dy > 0) {
-                        (activity as? INavViewContainer)?.hideNavigationView()
-                    } else if (dy < 0) {
-                        (activity as? INavViewContainer)?.showNavigationView()
-                    }
-                }
+        ViewCompat.setOnApplyWindowInsetsListener(fab) { _, insets ->
+            val navigationBars = insets.getInsets(WindowInsetsCompat.Type.navigationBars())
+            fab.updateLayoutParams<CoordinatorLayout.LayoutParams> {
+                rightMargin = 25.dp
+                bottomMargin =
+                    if (isPortrait)
+                        navigationBars.bottom + 105.dp
+                    else 25.dp
             }
-        })
-    }
-
-    private fun initRefresh() {
-        binding.swipeRefresh.setColorSchemeColors(
-            MaterialColors.getColor(
-                requireContext(),
-                com.google.android.material.R.attr.colorPrimary,
-                0
-            )
-        )
-        binding.swipeRefresh.setOnRefreshListener {
-            binding.indicator.parent.isIndeterminate = false
-            binding.indicator.parent.visibility = View.GONE
-            refreshData()
+            insets
         }
     }
 
-    private fun initView() {
-        mAdapter = AppListAdapter()
-        binding.recyclerView.apply {
-            itemAnimator = null
-            adapter = ConcatAdapter(HeaderAdapter(), mAdapter)
-            layoutManager =
-                if (resources.configuration.orientation == Configuration.ORIENTATION_PORTRAIT) {
-                    mLayoutManager = LinearLayoutManager(requireContext())
-                    mLayoutManager
-                } else {
-                    sLayoutManager =
-                        StaggeredGridLayoutManager(2, StaggeredGridLayoutManager.VERTICAL)
-                    sLayoutManager
-                }
-            if (itemDecorationCount == 0)
-                if (resources.configuration.orientation == Configuration.ORIENTATION_PORTRAIT)
-                    addItemDecoration(LinearItemDecoration(10.dp))
-                else
-                    addItemDecoration(StaggerItemDecoration(10.dp))
+    override fun onScrolled(dy: Int) {
+        if (dy > 0) {
+            (activity as? INavViewContainer)?.hideNavigationView()
+        } else if (dy < 0) {
+            (activity as? INavViewContainer)?.showNavigationView()
         }
-
     }
+
 
     override fun onResume() {
         super.onResume()
-        if (viewModel.isInit) {
-            viewModel.isInit = false
-            initFab()
-            initView()
-            initData()
-            initRefresh()
-            initScroll()
-            initObserve()
-        }
-
-        (requireParentFragment() as? IOnTabClickContainer)?.tabController = this
-
+        (parentFragment as? IOnTabClickContainer)?.tabController = this
+        (activity as? IOnBottomClickContainer)?.controller = this
     }
 
     override fun onPause() {
         super.onPause()
-        (requireParentFragment() as? IOnTabClickContainer)?.tabController = null
+        (parentFragment as? IOnTabClickContainer)?.tabController = null
+        (activity as? IOnBottomClickContainer)?.controller = null
     }
 
-    private fun refreshData() {
-        binding.swipeRefresh.isRefreshing = true
-        viewModel.getItems(requireContext())
+    override fun onReturnTop() {
+        onReturnTop(true)
     }
 
     override fun onReturnTop(isRefresh: Boolean?) {

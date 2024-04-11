@@ -43,12 +43,12 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), IOnBottomClickContaine
             viewModel.isInit = false
             genData()
             initObserve()
+        } else if (viewModel.badge != 0) {
+            setBadge()
         }
 
-        if (viewModel.badge != 0)
-            setBadge()
-
         binding.viewPager.apply {
+            offscreenPageLimit = 2
             adapter = object : FragmentStateAdapter(this@MainActivity) {
                 override fun getItemCount() = 3
                 override fun createFragment(position: Int): Fragment {
@@ -90,8 +90,10 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), IOnBottomClickContaine
 
                     R.id.navigation_message -> {
                         binding.viewPager.setCurrentItem(1, true)
-                        if (viewModel.badge != 0)
+                        if (viewModel.badge != 0) {
                             navView.removeBadge(R.id.navigation_message)
+                            viewModel.badge = 0
+                        }
                     }
 
                     R.id.navigation_setting -> {
@@ -172,7 +174,7 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), IOnBottomClickContaine
             // 因为它的结果可能受到 insets 传播链上层某环节的影响，出现了错误的 navigationBarsInsets
             val navigationBarsInsets =
                 ViewCompat.getRootWindowInsets(view)
-                    ?.getInsets(WindowInsetsCompat.Type.navigationBars())
+                    ?.getInsets(WindowInsetsCompat.Type.systemBars())
             view.updatePadding(bottom = navigationBarsInsets?.bottom ?: 0)
             windowInsets
         }

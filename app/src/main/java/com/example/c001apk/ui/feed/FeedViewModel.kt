@@ -3,56 +3,61 @@ package com.example.c001apk.ui.feed
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import androidx.lifecycle.MutableLiveData
-import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.c001apk.adapter.FooterAdapter
+import com.example.c001apk.adapter.FooterState
+import com.example.c001apk.adapter.LoadingState
+import com.example.c001apk.constant.Constants.LOADING_END
 import com.example.c001apk.constant.Constants.LOADING_FAILED
 import com.example.c001apk.logic.model.FeedArticleContentBean
 import com.example.c001apk.logic.model.FeedEntity
 import com.example.c001apk.logic.model.HomeFeedResponse
-import com.example.c001apk.logic.model.Like
 import com.example.c001apk.logic.model.TotalReplyResponse
 import com.example.c001apk.logic.repository.BlackListRepo
 import com.example.c001apk.logic.repository.HistoryFavoriteRepo
 import com.example.c001apk.logic.repository.NetworkRepo
+import com.example.c001apk.ui.base.BaseAppViewModel
 import com.example.c001apk.util.Event
-import com.example.c001apk.util.PrefManager
 import com.google.gson.Gson
+import dagger.assisted.Assisted
+import dagger.assisted.AssistedFactory
+import dagger.assisted.AssistedInject
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.launch
-import java.net.URLDecoder
-import javax.inject.Inject
+import kotlinx.coroutines.withContext
 
-@HiltViewModel
-class FeedViewModel @Inject constructor(
-    val repository: BlackListRepo,
-    private val historyFavoriteRepo: HistoryFavoriteRepo,
-    private val networkRepo: NetworkRepo
-) : ViewModel() {
+@HiltViewModel(assistedFactory = FeedViewModel.Factory::class)
+class FeedViewModel @AssistedInject constructor(
+    @Assisted("id") val id: String,
+    @Assisted("frid") var frid: String?,
+    @Assisted var isViewReply: Boolean,
+    blackListRepo: BlackListRepo,
+    historyRepo: HistoryFavoriteRepo,
+    networkRepo: NetworkRepo
+) : BaseAppViewModel(blackListRepo, historyRepo, networkRepo) {
 
+    @AssistedFactory
+    interface Factory {
+        fun create(
+            @Assisted("id") id: String,
+            @Assisted("frid") frid: String?,
+            isViewReply: Boolean
+        ): FeedViewModel
+    }
+
+    var isAInit = true
     var position: Int? = null
     var rPosition: Int? = null
-    var rid: String? = null
     var ruid: String? = null
     var uname: String? = null
     var type: String? = null
-    var listSize: Int = -1
     var isRefreshReply: Boolean? = null
     private var blockStatus = 0
     var fromFeedAuthor = 0
     private var discussMode: Int = 1
     var listType: String = "lastupdate_desc"
-    var page = 1
     var firstItem: String? = null
-    var lastItem: String? = null
-    var isInit: Boolean = true
-    var isRefreshing: Boolean = true
-    var isLoadMore: Boolean = false
-    var isEnd: Boolean = false
-    var lastVisibleItemPosition: Int = 0
     var itemCount = 2
     var uid: String? = null
     var funame: String? = null
@@ -63,33 +68,32 @@ class FeedViewModel @Inject constructor(
     var topReplyId: String? = null
     var isTop: Boolean? = null
     var feedType: String? = null
-    var errorMessage: String? = null
-    var isViewReply: Boolean? = null
-    var frid: String? = null
-    var firstVisibleItemPosition = 0
-    var id: String? = null
+
+    var rid: String? = null
     var feedTypeName: String? = null
 
     var feedDataList: MutableList<HomeFeedResponse.Data>? = null
     var articleList: MutableList<FeedArticleContentBean.Data>? = null
     var articleMsg: String? = null
-    var articleDateLine: String? = null
+    var articleDateLine: Long? = null
     val feedTopReplyList = ArrayList<TotalReplyResponse.Data>()
 
-    val doNext = MutableLiveData<Event<Pair<Int, String?>>>()
-    val changeState = MutableLiveData<Pair<FooterAdapter.LoadState, String?>>()
     val feedReplyData = MutableLiveData<List<TotalReplyResponse.Data>>()
-    var afterFollow = MutableLiveData<Event<Int>>()
-    fun onPostFollowUnFollow(url: String, uid: String, followAuthor: Int) {
+    val feedUserState = MutableLiveData<Event<Boolean>>()
+
+    fun onFollowUnFollow(url: String, uid: String, followAuthor: Int) {
         viewModelScope.launch(Dispatchers.IO) {
             networkRepo.postFollowUnFollow(url, uid)
                 .collect { result ->
                     val response = result.getOrNull()
                     if (response != null) {
-                        val isFollow = if (followAuthor == 1) 0
-                        else 1
-                        feedDataList?.getOrNull(0)?.userAction?.followAuthor = isFollow
-                        afterFollow.postValue(Event(isFollow))
+                        if (response.message != null) {
+                            toastText.postValue(Event(response.message))
+                        } else {
+                            feedDataList?.getOrNull(0)?.userAction?.followAuthor =
+                                if (followAuthor == 1) 0 else 1
+                            feedUserState.postValue(Event(true))
+                        }
                     } else {
                         result.exceptionOrNull()?.printStackTrace()
                     }
@@ -97,28 +101,23 @@ class FeedViewModel @Inject constructor(
         }
     }
 
-    fun onPostLikeReply(id: String, position: Int, likeData: Like) {
-        val likeType = if (likeData.isLike.get() == 1) "unLikeReply"
-        else "likeReply"
+    fun onLikeReply(id: String, isLike: Int) {
+        val likeType = if (isLike == 1) "unLikeReply" else "likeReply"
         val likeUrl = "/v6/feed/$likeType"
         viewModelScope.launch(Dispatchers.IO) {
             networkRepo.postLikeReply(likeUrl, id)
-                .catch { err ->
-                    err.message?.let {
-                        toastText.postValue(Event(it))
-                    }
-                }
                 .collect { result ->
                     val response = result.getOrNull()
                     if (response != null) {
                         if (response.data != null) {
-                            val count = response.data
-                            val isLike = if (likeData.isLike.get() == 1) 0 else 1
-                            likeData.likeNum.set(count)
-                            likeData.isLike.set(isLike)
-                            val currentList = feedReplyData.value?.toMutableList() ?: ArrayList()
-                            currentList[position].likenum = count
-                            currentList[position].userAction?.like = isLike
+                            val currentList = feedReplyData.value?.map {
+                                if (it.id == id) {
+                                    it.copy(
+                                        likenum = response.data,
+                                        userAction = it.userAction?.copy(like = if (isLike == 1) 0 else 1)
+                                    )
+                                } else it
+                            } ?: emptyList()
                             feedReplyData.postValue(currentList)
                         } else {
                             response.message?.let {
@@ -135,145 +134,142 @@ class FeedViewModel @Inject constructor(
     fun fetchFeedReply() {
         viewModelScope.launch(Dispatchers.IO) {
             networkRepo.getFeedContentReply(
-                id.toString(), listType, page, firstItem, lastItem, discussMode,
+                id, listType, page, firstItem, lastItem, discussMode,
                 feedType.toString(), blockStatus, fromFeedAuthor
             )
                 .onStart {
                     if (isLoadMore)
-                        changeState.postValue(Pair(FooterAdapter.LoadState.LOADING, null))
+                        footerState.postValue(FooterState.Loading)
                 }
                 .collect { result ->
                     val feedReplyList = feedReplyData.value?.toMutableList() ?: ArrayList()
                     val reply = result.getOrNull()
-                    if (reply?.message != null) {
-                        changeState.postValue(
-                            Pair(
-                                FooterAdapter.LoadState.LOADING_ERROR,
-                                reply.message
-                            )
-                        )
-                        return@collect
-                    } else if (!reply?.data.isNullOrEmpty()) {
-                        if (firstItem == null)
-                            firstItem = reply?.data?.first()?.id
-                        lastItem = reply?.data?.last()?.id
-                        if (isRefreshing) {
-                            feedReplyList.clear()
-                            if (listType == "lastupdate_desc" && feedTopReplyList.isNotEmpty())
-                                feedReplyList.addAll(feedTopReplyList)
-                        }
-                        if (isRefreshing || isLoadMore) {
-                            reply?.data?.let { data ->
-                                data.forEach {
+                    if (reply != null) {
+                        if (reply.message != null) {
+                            footerState.postValue(FooterState.LoadingError(reply.message))
+                            return@collect
+                        } else if (!reply.data.isNullOrEmpty()) {
+                            if (firstItem == null)
+                                firstItem = reply.data.first().id
+                            lastItem = reply.data.last().id
+                            if (isRefreshing) {
+                                feedReplyList.clear()
+                                if (listType == "lastupdate_desc" && feedTopReplyList.isNotEmpty())
+                                    feedReplyList.addAll(feedTopReplyList)
+                            }
+                            if (isRefreshing || isLoadMore) {
+                                reply.data.forEach {
                                     if (it.entityType == "feed_reply") {
                                         if (listType == "lastupdate_desc" && topReplyId != null
                                             && it.id == topReplyId
                                         )
                                             return@forEach
-                                        if (!repository.checkUid(it.uid))
+                                        if (!blackListRepo.checkUid(it.uid))
                                             feedReplyList.add(it)
                                     }
                                 }
                             }
+                            page++
+                            feedReplyData.postValue(feedReplyList)
+                            footerState.postValue(FooterState.LoadingDone)
+                        } else if (reply.data?.isEmpty() == true) {
+                            isEnd = true
+                            if (isRefreshing)
+                                feedReplyData.postValue(emptyList())
+                            footerState.postValue(FooterState.LoadingEnd(LOADING_END))
                         }
-                        changeState.postValue(Pair(FooterAdapter.LoadState.LOADING_COMPLETE, null))
-                    } else if (reply?.data?.isEmpty() == true) {
-                        if (isRefreshing)
-                            feedReplyList.clear()
-                        isEnd = true
-                        changeState.postValue(Pair(FooterAdapter.LoadState.LOADING_END, null))
                     } else {
-                        changeState.postValue(
-                            Pair(
-                                FooterAdapter.LoadState.LOADING_ERROR,
-                                LOADING_FAILED
-                            )
-                        )
+                        footerState.postValue(FooterState.LoadingError(LOADING_FAILED))
                         result.exceptionOrNull()?.printStackTrace()
                     }
-                    feedReplyData.postValue(feedReplyList)
+                    isRefreshing = false
+                    isLoadMore = false
                 }
         }
     }
 
     fun fetchFeedData() {
         viewModelScope.launch(Dispatchers.IO) {
-            networkRepo.getFeedContent(id.toString(), frid)
+            networkRepo.getFeedContent(id, frid)
                 .collect { result ->
                     val feed = result.getOrNull()
-                    if (feed?.message != null) {
-                        errorMessage = feed.message
-                        doNext.postValue(Event(Pair(1, feed.message)))
-                        return@collect
-                    } else if (feed?.data != null) {
-                        uid = feed.data.uid
-                        funame = feed.data.userInfo?.username.toString()
-                        avatar = feed.data.userAvatar
-                        device = feed.data.deviceTitle.toString()
-                        replyCount = feed.data.replynum
-                        dateLine = feed.data.dateline
-                        feedTypeName = feed.data.feedTypeName
-                        feedType = feed.data.feedType
+                    if (feed != null) {
+                        if (feed.message != null) {
+                            activityState.postValue(LoadingState.LoadingError(feed.message))
+                            return@collect
+                        } else if (feed.data != null) {
+                            uid = feed.data.uid
+                            funame = feed.data.userInfo?.username
+                            avatar = feed.data.userAvatar
+                            device = feed.data.deviceTitle
+                            replyCount = feed.data.replynum
+                            dateLine = feed.data.dateline
+                            feedTypeName = feed.data.feedTypeName
+                            feedType = feed.data.feedType
 
-                        if (feedType == "feedArticle") {
-                            articleMsg =
-                                if (feed.data.message.length > 150)
-                                    feed.data.message.substring(0, 150)
-                                else feed.data.message
-                            articleDateLine = feed.data.dateline.toString()
-                            articleList = ArrayList<FeedArticleContentBean.Data>().also {
-                                if (feed.data.messageCover?.isNotEmpty() == true) {
-                                    it.add(
-                                        FeedArticleContentBean.Data(
-                                            "image", null, feed.data.messageCover,
-                                            null, null, null, null
+                            if (feedType in listOf("feedArticle", "trade")
+                                && feed.data.messageRawOutput != "null"
+                            ) {
+                                articleMsg =
+                                    if ((feed.data.message?.length ?: 0) > 150)
+                                        feed.data.message?.substring(0, 150)
+                                    else feed.data.message
+                                articleDateLine = feed.data.dateline
+                                articleList = ArrayList<FeedArticleContentBean.Data>().also {
+                                    if (feed.data.messageCover?.isNotEmpty() == true) {
+                                        it.add(
+                                            FeedArticleContentBean.Data(
+                                                "image", null, feed.data.messageCover,
+                                                null, null, null, null
+                                            )
                                         )
-                                    )
-                                }
-                                if (feed.data.messageTitle?.isNotEmpty() == true) {
-                                    it.add(
-                                        FeedArticleContentBean.Data(
-                                            "text", feed.data.messageTitle, null,
-                                            null, "true", null, null
+                                    }
+                                    if (feed.data.messageTitle?.isNotEmpty() == true) {
+                                        it.add(
+                                            FeedArticleContentBean.Data(
+                                                "text", feed.data.messageTitle, null,
+                                                null, "true", null, null
+                                            )
                                         )
+                                    }
+                                    val feedRaw = """{"data":${feed.data.messageRawOutput}}"""
+                                    val feedJson: FeedArticleContentBean = Gson().fromJson(
+                                        feedRaw, FeedArticleContentBean::class.java
                                     )
+                                    feedJson.data?.forEach { item ->
+                                        if (item.type in listOf("text", "image", "shareUrl"))
+                                            it.add(item)
+                                    }
+                                    itemCount = it.size + 1
                                 }
-                                val feedRaw = """{"data":${feed.data.messageRawOutput}}"""
-                                val feedJson: FeedArticleContentBean = Gson().fromJson(
-                                    feedRaw, FeedArticleContentBean::class.java
-                                )
-                                feedJson.data.forEach { item ->
-                                    if (item.type == "text" || item.type == "image" || item.type == "shareUrl")
-                                        it.add(item)
+                            } else {
+                                feedDataList = ArrayList<HomeFeedResponse.Data>().also {
+                                    it.add(feed.data)
                                 }
-                                itemCount = it.size + 1
                             }
-                        } else {
-                            feedDataList = ArrayList<HomeFeedResponse.Data>().also {
-                                it.add(feed.data)
+                            if (!feed.data.topReplyRows.isNullOrEmpty()) {
+                                isTop = true
+                                topReplyId = feed.data.topReplyRows[0].id
+                                feedTopReplyList.clear()
+                                feedTopReplyList.addAll(feed.data.topReplyRows)
+                            } else if (!feed.data.replyMeRows.isNullOrEmpty()) {
+                                isTop = false
+                                topReplyId = feed.data.replyMeRows[0].id
+                                feedTopReplyList.clear()
+                                feedTopReplyList.addAll(feed.data.replyMeRows)
                             }
+                            activityState.postValue(LoadingState.LoadingDone)
                         }
-                        if (!feed.data.topReplyRows.isNullOrEmpty()) {
-                            isTop = true
-                            topReplyId = feed.data.topReplyRows[0].id
-                            feedTopReplyList.clear()
-                            feedTopReplyList.addAll(feed.data.topReplyRows)
-                        } else if (!feed.data.replyMeRows.isNullOrEmpty()) {
-                            isTop = false
-                            topReplyId = feed.data.replyMeRows[0].id
-                            feedTopReplyList.clear()
-                            feedTopReplyList.addAll(feed.data.replyMeRows)
-                        }
-                        doNext.postValue(Event(Pair(2, null)))
                     } else {
-                        doNext.postValue(Event(Pair(3, null)))
+                        activityState.postValue(LoadingState.LoadingFailed(LOADING_FAILED))
                         result.exceptionOrNull()?.printStackTrace()
                     }
+                    isRefreshing = false
+                    isLoadMore = false
                 }
         }
     }
 
-    val toastText = MutableLiveData<Event<String>>()
     val closeSheet = MutableLiveData<Event<Boolean>>()
     val scroll = MutableLiveData<Event<Boolean>>()
     val notify = MutableLiveData<Event<Boolean>>()
@@ -286,62 +282,19 @@ class FeedViewModel @Inject constructor(
                     val response = result.getOrNull()
                     response?.let {
                         if (response.data != null) {
-                            if (response.data.id != null) {
-                                toastText.postValue(Event("回复成功"))
-                                closeSheet.postValue(Event(true))
-                                if (type == "feed") {
-                                    feedReplyList.add(
-                                        0, TotalReplyResponse.Data(
-                                            null,
-                                            "feed_reply",
-                                            (12345678..87654321).random()
-                                                .toString(), // just random local id
-                                            ruid.toString(),
-                                            PrefManager.uid,
-                                            id.toString(),
-                                            URLDecoder.decode(PrefManager.username, "UTF-8"),
-                                            uname.toString(),
-                                            replyData["message"].toString(),
-                                            "",
-                                            null,
-                                            System.currentTimeMillis() / 1000,
-                                            "0",
-                                            "0",
-                                            PrefManager.userAvatar,
-                                            ArrayList(),
-                                            0,
-                                            TotalReplyResponse.UserAction(0)
-                                        )
-                                    )
-                                    scroll.postValue(Event(true))
-                                } else {
-                                    feedReplyList.getOrNull(position ?: 0)?.replyRows?.add(
-                                        feedReplyList.getOrNull(position ?: 0)?.replyRows?.size?:0,
-                                        TotalReplyResponse.Data(
-                                            null,
-                                            "feed_reply",
-                                            rid.toString(),
-                                            ruid.toString(),
-                                            PrefManager.uid,
-                                            rid.toString(),
-                                            URLDecoder.decode(PrefManager.username, "UTF-8"),
-                                            uname.toString(),
-                                            replyData["message"].toString(),
-                                            "",
-                                            null,
-                                            System.currentTimeMillis() / 1000,
-                                            "0",
-                                            "0",
-                                            PrefManager.userAvatar,
-                                            null,
-                                            0,
-                                            null
-                                        )
-                                    )
-                                    notify.postValue(Event(true))
-                                }
-                                feedReplyData.postValue(feedReplyList)
+                            toastText.postValue(Event("回复成功"))
+                            closeSheet.postValue(Event(true))
+                            if (type == "feed") {
+                                feedReplyList.add(0, response.data)
+                                scroll.postValue(Event(true))
+                            } else {
+                                feedReplyList.getOrNull(position ?: 0)?.replyRows?.add(
+                                    feedReplyList.getOrNull(position ?: 0)?.replyRows?.size
+                                        ?: 0, response.data
+                                )
+                                notify.postValue(Event(true))
                             }
+                            feedReplyData.postValue(feedReplyList)
                         } else {
                             response.message?.let {
                                 toastText.postValue(Event(it))
@@ -378,16 +331,12 @@ class FeedViewModel @Inject constructor(
                     val response = result.getOrNull()
                     response?.let {
                         if (response.data != null) {
-                            response.data.let {
-                                toastText.postValue(Event(it))
-                            }
+                            toastText.postValue(Event(response.data))
                             if (response.data == "验证通过") {
                                 onPostReply()
                             }
                         } else if (response.message != null) {
-                            response.message.let {
-                                toastText.postValue(Event(it))
-                            }
+                            toastText.postValue(Event(response.message))
                             if (response.message == "请输入正确的图形验证码") {
                                 onGetValidateCaptcha()
                             }
@@ -397,27 +346,18 @@ class FeedViewModel @Inject constructor(
         }
     }
 
-    fun onPostLikeFeed(id: String, likeData: Like) {
-        val likeType = if (likeData.isLike.get() == 1) "unlike"
-        else "like"
+    fun onLikeFeed(id: String, isLike: Int) {
+        val likeType = if (isLike == 1) "unlike" else "like"
         val likeUrl = "/v6/feed/$likeType"
         viewModelScope.launch(Dispatchers.IO) {
             networkRepo.postLikeFeed(likeUrl, id)
-                .catch { err ->
-                    err.message?.let {
-                        toastText.postValue(Event(it))
-                    }
-                }
                 .collect { result ->
                     val response = result.getOrNull()
                     if (response != null) {
                         if (response.data != null) {
-                            val count = response.data.count
-                            val isLike = if (likeData.isLike.get() == 1) 0 else 1
-                            likeData.likeNum.set(count)
-                            likeData.isLike.set(isLike)
-                            feedDataList?.getOrNull(0)?.likenum = count
-                            feedDataList?.getOrNull(0)?.userAction?.like = isLike
+                            feedDataList?.getOrNull(0)?.likenum = response.data.count
+                            feedDataList?.getOrNull(0)?.userAction?.like = if (isLike == 1) 0 else 1
+                            feedUserState.postValue(Event(true))
                         } else {
                             response.message?.let {
                                 toastText.postValue(Event(it))
@@ -461,23 +401,25 @@ class FeedViewModel @Inject constructor(
 
     fun saveUid(uid: String) {
         viewModelScope.launch(Dispatchers.IO) {
-            repository.saveUid(uid)
+            blackListRepo.saveUid(uid)
         }
     }
 
     suspend fun isFavorite(fid: String): Boolean {
-        return historyFavoriteRepo.checkFavorite(fid)
-    }
-
-    fun delete(fid: String) {
-        viewModelScope.launch(Dispatchers.IO) {
-            historyFavoriteRepo.deleteFavorite(fid)
+        return withContext(Dispatchers.IO) {
+            historyRepo.checkFavorite(fid)
         }
     }
 
-    fun insert(fav: FeedEntity) {
-        viewModelScope.launch(Dispatchers.IO) {
-            historyFavoriteRepo.insertFavorite(fav)
+    suspend fun delete(fid: String) {
+        withContext(Dispatchers.IO) {
+            historyRepo.deleteFavorite(fid)
+        }
+    }
+
+    suspend fun insert(fav: FeedEntity) {
+        withContext(Dispatchers.IO) {
+            historyRepo.insertFavorite(fav)
         }
     }
 
@@ -491,7 +433,7 @@ class FeedViewModel @Inject constructor(
         dateline: String,
     ) {
         viewModelScope.launch(Dispatchers.IO) {
-            historyFavoriteRepo.saveHistory(
+            historyRepo.saveHistory(
                 id,
                 uid,
                 username,
@@ -500,6 +442,170 @@ class FeedViewModel @Inject constructor(
                 message,
                 dateline,
             )
+        }
+    }
+
+    override fun fetchData() {}
+
+    fun preFetchVoteComment() {
+        val fid = feedDataList?.getOrNull(0)?.vote?.id ?: ""
+        when (val type = feedDataList?.getOrNull(0)?.vote?.type) {
+            0 -> { // 2 options
+                fetchVoteCommentType0(
+                    fid,
+                    feedDataList?.getOrNull(0)?.vote?.options?.getOrNull(0)?.id ?: ""
+                )
+            }
+
+            1 -> {
+                fetchVoteCommentType1(fid)
+            }
+
+            else -> {
+                toastText.postValue(Event("unsupported vote type: $type"))
+            }
+        }
+    }
+
+    private fun fetchVoteCommentType0(fid: String, extraKey: String) {
+        val isLeft = extraKey == feedDataList?.getOrNull(0)?.vote?.options?.getOrNull(0)?.id
+        viewModelScope.launch(Dispatchers.IO) {
+            networkRepo.getVoteComment(fid, extraKey, page, null, null)
+                .onStart {
+                    if (isLeft)
+                        footerState.postValue(FooterState.Loading)
+                }
+                .collect { result ->
+                    val feedReplyList = feedReplyData.value?.toMutableList() ?: ArrayList()
+                    val data = result.getOrNull()
+                    if (data != null) {
+                        if (data.message != null) {
+                            footerState.postValue(FooterState.LoadingError(data.message))
+                            return@collect
+                        } else if (!data.data.isNullOrEmpty()) {
+                            if (isRefreshing) {
+                                if (isLeft)
+                                    feedReplyList.clear()
+                            }
+                            if (isRefreshing || isLoadMore) {
+                                data.data.forEach {
+                                    if (it.entityType == "feed" && !blackListRepo.checkUid(it.uid)) {
+                                        feedReplyList.add(it)
+                                    }
+                                }
+                            }
+                            feedReplyData.postValue(feedReplyList)
+                            if (!isLeft)
+                                footerState.postValue(FooterState.LoadingDone)
+                        } else if (data.data?.isEmpty() == true) {
+                            if (!isLeft)
+                                footerState.postValue(FooterState.LoadingEnd(LOADING_END))
+                        }
+                        if (!isLeft)
+                            page++
+                    } else {
+                        if (!isLeft)
+                            footerState.postValue(FooterState.LoadingError(LOADING_FAILED))
+                        result.exceptionOrNull()?.printStackTrace()
+                    }
+                    if (isLeft) {
+                        fetchVoteCommentType0(
+                            fid,
+                            feedDataList?.getOrNull(0)?.vote?.options?.getOrNull(1)?.id ?: ""
+                        )
+                    }
+                    if (!isLeft) {
+                        isRefreshing = false
+                        isLoadMore = false
+                    }
+                }
+        }
+    }
+
+    private fun fetchVoteCommentType1(fid: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            networkRepo.getVoteComment(fid, "", page, null, lastItem)
+                .onStart {
+                    footerState.postValue(FooterState.Loading)
+                }
+                .collect { result ->
+                    val feedReplyList = feedReplyData.value?.toMutableList() ?: ArrayList()
+                    val data = result.getOrNull()
+                    if (data != null) {
+                        if (data.message != null) {
+                            footerState.postValue(FooterState.LoadingError(data.message))
+                            return@collect
+                        } else if (!data.data.isNullOrEmpty()) {
+                            lastItem = data.data.last().id
+                            if (isRefreshing)
+                                feedReplyList.clear()
+                            if (isRefreshing || isLoadMore) {
+                                data.data.forEach {
+                                    if (it.entityType == "feed" && !blackListRepo.checkUid(it.uid)) {
+                                        feedReplyList.add(it)
+                                    }
+                                }
+                            }
+                            page++
+                            feedReplyData.postValue(feedReplyList)
+                            footerState.postValue(FooterState.LoadingDone)
+                        } else if (data.data?.isEmpty() == true) {
+                            isEnd = true
+                            if (isRefreshing)
+                                feedReplyData.postValue(emptyList())
+                            footerState.postValue(FooterState.LoadingEnd(LOADING_END))
+                        }
+                    } else {
+                        footerState.postValue(FooterState.LoadingError(LOADING_FAILED))
+                        result.exceptionOrNull()?.printStackTrace()
+                    }
+                    isRefreshing = false
+                    isLoadMore = false
+                }
+        }
+    }
+
+
+    fun fetchAnswerList(sort: String = "reply") {
+        viewModelScope.launch(Dispatchers.IO) {
+            networkRepo.getAnswerList(id, sort, page, null, lastItem)
+                .onStart {
+                    footerState.postValue(FooterState.Loading)
+                }
+                .collect { result ->
+                    val feedReplyList = feedReplyData.value?.toMutableList() ?: ArrayList()
+                    val data = result.getOrNull()
+                    if (data != null) {
+                        if (data.message != null) {
+                            footerState.postValue(FooterState.LoadingError(data.message))
+                            return@collect
+                        } else if (!data.data.isNullOrEmpty()) {
+                            lastItem = data.data.last().id
+                            if (isRefreshing)
+                                feedReplyList.clear()
+                            if (isRefreshing || isLoadMore) {
+                                data.data.forEach {
+                                    if (it.entityType == "feed" && !blackListRepo.checkUid(it.uid)) {
+                                        feedReplyList.add(it)
+                                    }
+                                }
+                            }
+                            page++
+                            feedReplyData.postValue(feedReplyList)
+                            footerState.postValue(FooterState.LoadingDone)
+                        } else if (data.data.isNullOrEmpty()) {
+                            isEnd = true
+                            if (isRefreshing)
+                                feedReplyData.postValue(emptyList())
+                            footerState.postValue(FooterState.LoadingEnd(LOADING_END))
+                        }
+                    } else {
+                        footerState.postValue(FooterState.LoadingError(LOADING_FAILED))
+                        result.exceptionOrNull()?.printStackTrace()
+                    }
+                    isRefreshing = false
+                    isLoadMore = false
+                }
         }
     }
 

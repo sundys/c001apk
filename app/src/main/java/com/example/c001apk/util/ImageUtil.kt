@@ -18,6 +18,7 @@ import android.view.View
 import android.widget.ImageView
 import android.widget.Toast
 import androidx.core.content.FileProvider
+import androidx.core.view.isVisible
 import androidx.fragment.app.FragmentActivity
 import com.bumptech.glide.Glide
 import com.bumptech.glide.load.engine.DiskCacheStrategy
@@ -59,47 +60,37 @@ object ImageUtil {
     private lateinit var imagesDir: File
     private lateinit var imageCheckDir: File
 
-    fun showUserCover(view: ImageView, url: String?) {
-        val newUrl = GlideUrl(
-            url?.http2https,
-            LazyHeaders.Builder().addHeader("User-Agent", USER_AGENT).build()
-        )
-        Glide
-            .with(view)
-            .load(newUrl)
-            .transform(ColorFilterTransformation(Color.parseColor("#8A000000")))
-            .diskCacheStrategy(DiskCacheStrategy.ALL)
-            .transition(withCrossFade())
-            .skipMemoryCache(false)
-            .into(view)
-    }
-
     @SuppressLint("CheckResult")
-    fun showIMG(view: ImageView, url: String?) {
-        val newUrl = GlideUrl(
-            url?.http2https,
-            LazyHeaders.Builder().addHeader("User-Agent", USER_AGENT).build()
-        )
-        Glide
-            .with(view).apply {
-                if (url?.endsWith(".gif") == true)
-                    asGif()
-            }
-            .load(newUrl).apply {
-                if (ResourceUtils.isNightMode(view.context.resources.configuration)
-                    && PrefManager.isColorFilter
-                )
-                    transform(
-                        CenterCrop(),
-                        ColorFilterTransformation(Color.parseColor("#2D000000"))
-                    )
-                else
-                    transform(CenterCrop())
-            }
-            .transition(withCrossFade())
-            .diskCacheStrategy(DiskCacheStrategy.ALL)
-            .skipMemoryCache(false)
-            .into(view)
+    fun showIMG(view: ImageView, url: String?, isCover: Boolean = false) {
+        url?.let {
+            val newUrl = GlideUrl(
+                it.http2https,
+                LazyHeaders.Builder().addHeader("User-Agent", USER_AGENT).build()
+            )
+            Glide
+                .with(view).apply {
+                    if (it.endsWith(".gif"))
+                        asGif()
+                }
+                .load(newUrl).apply {
+                    if (isCover) {
+                        transform(ColorFilterTransformation(Color.parseColor("#8A000000")))
+                    } else if (ResourceUtils.isNightMode(view.context.resources.configuration)
+                        && PrefManager.isColorFilter
+                    ) {
+                        transform(
+                            CenterCrop(),
+                            ColorFilterTransformation(Color.parseColor("#2D000000"))
+                        )
+                    } else {
+                        transform(CenterCrop())
+                    }
+                }
+                .transition(withCrossFade())
+                .diskCacheStrategy(DiskCacheStrategy.ALL)
+                .skipMemoryCache(false)
+                .into(view)
+        }
     }
 
     private suspend fun saveImageToGallery(ctx: Context, imageUrl: String): Boolean =
@@ -271,24 +262,20 @@ object ImageUtil {
                 override fun onStartAnim(position: Int) {
                     nineGridView.getImageViewAt(position)?.apply {
                         postDelayed({
-                            this.visibility = View.GONE
+                            this.isVisible = false
                         }, 200)
                     }
                 }
 
                 override fun onMojitoViewFinish(pagePosition: Int) {
                     nineGridView.getImageViews().forEach {
-                        it.visibility = View.VISIBLE
+                        it.isVisible = true
                     }
                 }
 
                 override fun onViewPageSelected(position: Int) {
                     nineGridView.getImageViews().forEachIndexed { index, imageView ->
-                        if (position == index) {
-                            imageView.visibility = View.GONE
-                        } else {
-                            imageView.visibility = View.VISIBLE
-                        }
+                        imageView.isVisible = position != index
                     }
                 }
 

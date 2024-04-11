@@ -1,262 +1,166 @@
 package com.example.c001apk.ui.user
 
-import android.view.View
 import androidx.lifecycle.MutableLiveData
-import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.c001apk.adapter.FooterAdapter
-import com.example.c001apk.adapter.ItemListener
-import com.example.c001apk.constant.Constants
+import com.example.c001apk.adapter.FooterState
+import com.example.c001apk.adapter.LoadingState
+import com.example.c001apk.constant.Constants.LOADING_EMPTY
+import com.example.c001apk.constant.Constants.LOADING_END
 import com.example.c001apk.constant.Constants.LOADING_FAILED
-import com.example.c001apk.logic.model.HomeFeedResponse
-import com.example.c001apk.logic.model.Like
 import com.example.c001apk.logic.model.UserProfileResponse
 import com.example.c001apk.logic.repository.BlackListRepo
 import com.example.c001apk.logic.repository.HistoryFavoriteRepo
 import com.example.c001apk.logic.repository.NetworkRepo
+import com.example.c001apk.ui.base.BaseAppViewModel
 import com.example.c001apk.util.Event
-import com.example.c001apk.util.PrefManager
+import dagger.assisted.Assisted
+import dagger.assisted.AssistedFactory
+import dagger.assisted.AssistedInject
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.launch
-import javax.inject.Inject
 
-@HiltViewModel
-class UserViewModel @Inject constructor(
-    val repository: BlackListRepo,
-    private val historyFavoriteRepo: HistoryFavoriteRepo,
-    private val networkRepo: NetworkRepo
-) : ViewModel() {
+@HiltViewModel(assistedFactory = UserViewModel.Factory::class)
+class UserViewModel @AssistedInject constructor(
+    @Assisted var uid: String,
+    blackListRepo: BlackListRepo,
+    historyRepo: HistoryFavoriteRepo,
+    networkRepo: NetworkRepo
+) : BaseAppViewModel(blackListRepo, historyRepo, networkRepo) {
 
-    var url: String? = null
-    var isInit: Boolean = true
-    var uid: String? = null
-    var errorMessage: String? = null
-    var uname: String? = null
-    var lastVisibleItemPosition: Int = 0
-    var isRefreshing: Boolean = true
-    var isLoadMore: Boolean = false
-    var isEnd: Boolean = false
-    var page = 1
-    var listSize: Int = -1
-    var followType: Boolean = false
-    var avatar: String? = null
-    var cover: String? = null
-    var level: String? = null
-    var like: String? = null
-    var follow: String? = null
-    var fans: String? = null
-    var lastItem: String? = null
+    @AssistedFactory
+    interface Factory {
+        fun create(uid: String): UserViewModel
+    }
 
-    val showError = MutableLiveData<Event<Boolean>>()
-    val showUser = MutableLiveData<Event<Boolean>>()
-    val changeState = MutableLiveData<Pair<FooterAdapter.LoadState, String?>>()
-    val feedData = MutableLiveData<List<HomeFeedResponse.Data>>()
+    // activity
+    var isAInit: Boolean = true
+    val blockState = MutableLiveData<Event<Boolean>>()
+    val followState = MutableLiveData<Event<Int?>>()
     var userData: UserProfileResponse.Data? = null
-    var afterFollow = MutableLiveData<Event<Boolean>>()
 
     fun fetchUser() {
         viewModelScope.launch(Dispatchers.IO) {
-            networkRepo.getUserSpace(uid.toString())
+            networkRepo.getUserSpace(uid)
                 .collect { result ->
                     val user = result.getOrNull()
                     if (user?.message != null) {
-                        errorMessage = user.message
-                        showError.postValue(Event(true))
+                        activityState.postValue(LoadingState.LoadingError(user.message))
                         return@collect
                     } else if (user?.data != null) {
                         uid = user.data.uid
-                        followType = user.data.isFollow == 1
-                        uname = user.data.username
                         userData = user.data
-                        isRefreshing = true
-                        showUser.postValue(Event(true))
-                        fetchUserFeed()
+                        activityState.postValue(LoadingState.LoadingDone)
                     } else {
-                        uid = null
-                        showError.postValue(Event(false))
+                        activityState.postValue(LoadingState.LoadingFailed(LOADING_FAILED))
                         result.exceptionOrNull()?.printStackTrace()
                     }
                 }
         }
     }
 
-    fun fetchUserFeed() {
+    override fun fetchData() {
         viewModelScope.launch(Dispatchers.IO) {
-            networkRepo.getUserFeed(uid.toString(), page, lastItem)
+            networkRepo.getUserFeed(uid, page, lastItem)
                 .onStart {
-                    if (isLoadMore)
-                        changeState.postValue(Pair(FooterAdapter.LoadState.LOADING, null))
+                    if (isLoadMore) {
+                        if (listSize <= 0)
+                            loadingState.postValue(LoadingState.Loading)
+                        else
+                            footerState.postValue(FooterState.Loading)
+                    }
                 }
                 .collect { result ->
-                    val feedList = feedData.value?.toMutableList() ?: ArrayList()
+                    val feedList = dataList.value?.toMutableList() ?: ArrayList()
                     val feed = result.getOrNull()
                     if (feed != null) {
                         if (!feed.message.isNullOrEmpty()) {
-                            changeState.postValue(
-                                Pair(
-                                    FooterAdapter.LoadState.LOADING_ERROR, feed.message
-                                )
-                            )
+                            if (listSize <= 0)
+                                loadingState.postValue(LoadingState.LoadingError(feed.message))
+                            else
+                                footerState.postValue(FooterState.LoadingError(feed.message))
                             return@collect
                         } else if (!feed.data.isNullOrEmpty()) {
                             lastItem = feed.data.last().id
                             if (isRefreshing) feedList.clear()
                             if (isRefreshing || isLoadMore) {
                                 feed.data.forEach {
-                                    if (it.entityType == "feed")
-                                        if (!repository.checkUid(it.userInfo?.uid.toString())
-                                            && !repository.checkTopic(
-                                                it.tags + it.ttitle + it.relationRows?.getOrNull(0)?.title
+                                    // noMoreDataCard
+                                    if (it.entityTemplate == "noMoreDataCard") {
+                                        isEnd = true
+                                        isRefreshing = false
+                                        isLoadMore = false
+                                        dataList.postValue(feedList)
+                                        if (listSize <= 0 && feedList.isEmpty())
+                                            loadingState.postValue(
+                                                LoadingState.LoadingError(it.title ?: "")
+                                            )
+                                        else {
+                                            footerState.postValue(
+                                                FooterState.LoadingEnd(it.title ?: "")
+                                            )
+                                            loadingState.postValue(LoadingState.LoadingDone)
+                                        }
+                                        return@collect
+                                    } else if (it.entityType == "feed")
+                                        if (!blackListRepo.checkUid(it.userInfo?.uid.toString())
+                                            && !blackListRepo.checkTopic(
+                                                it.tags + it.ttitle + it.relationRows?.getOrNull(
+                                                    0
+                                                )?.title
                                             )
                                         )
                                             feedList.add(it)
                                 }
                             }
-                            changeState.postValue(
-                                Pair(
-                                    FooterAdapter.LoadState.LOADING_COMPLETE, null
+                            page++
+                            if (listSize <= 0)
+                                loadingState.postValue(LoadingState.LoadingDone)
+                            else
+                                footerState.postValue(FooterState.LoadingDone)
+                            dataList.postValue(feedList)
+                        } else if (feed.data?.isEmpty() == true) {
+                            isEnd = true
+                            if (listSize <= 0)
+                                loadingState.postValue(LoadingState.LoadingFailed(LOADING_EMPTY))
+                            else {
+                                if (isRefreshing)
+                                    dataList.postValue(emptyList())
+                                footerState.postValue(FooterState.LoadingEnd(LOADING_END))
+                            }
+                        }
+                    } else {
+                        isEnd = true
+                        if (listSize <= 0)
+                            loadingState.postValue(LoadingState.LoadingFailed(LOADING_FAILED))
+                        else
+                            footerState.postValue(FooterState.LoadingError(LOADING_FAILED))
+                        result.exceptionOrNull()?.printStackTrace()
+                    }
+                    isRefreshing = false
+                    isLoadMore = false
+                }
+        }
+    }
+
+    fun onPostFollowUnFollow(url: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            networkRepo.postFollowUnFollow(url, uid)
+                .collect { result ->
+                    val response = result.getOrNull()
+                    if (response != null) {
+                        if (response.message != null) {
+                            toastText.postValue(Event(response.message))
+                        } else {
+                            userData?.isFollow = if (userData?.isFollow == 1) 0 else 1
+                            checkFollow()
+                            toastText.postValue(
+                                Event(
+                                    if (userData?.isFollow == 1) "关注成功"
+                                    else "取消关注成功"
                                 )
                             )
-                        } else if (feed.data?.isEmpty() == true) {
-                            if (isRefreshing) feedList.clear()
-                            changeState.postValue(Pair(FooterAdapter.LoadState.LOADING_END, null))
-                            isEnd = true
-                        }
-                    } else {
-                        changeState.postValue(
-                            Pair(
-                                FooterAdapter.LoadState.LOADING_ERROR,
-                                LOADING_FAILED
-                            )
-                        )
-                        isEnd = true
-                        result.exceptionOrNull()?.printStackTrace()
-                    }
-                    feedData.postValue(feedList)
-                }
-        }
-    }
-
-    fun onPostFollowUnFollow() {
-        viewModelScope.launch(Dispatchers.IO) {
-            networkRepo.postFollowUnFollow(url.toString(), uid.toString())
-                .collect { result ->
-                    val response = result.getOrNull()
-                    if (response != null) {
-                        followType = !followType
-                        afterFollow.postValue(Event(true))
-                    } else {
-                        result.exceptionOrNull()?.printStackTrace()
-                    }
-                }
-        }
-    }
-
-
-    val toastText = MutableLiveData<Event<String>>()
-
-    inner class ItemClickListener : ItemListener {
-        override fun onViewFeed(
-            view: View,
-            id: String?,
-            uid: String?,
-            username: String?,
-            userAvatar: String?,
-            deviceTitle: String?,
-            message: String?,
-            dateline: String?,
-            rid: Any?,
-            isViewReply: Any?
-        ) {
-            super.onViewFeed(
-                view,
-                id,
-                uid,
-                username,
-                userAvatar,
-                deviceTitle,
-                message,
-                dateline,
-                rid,
-                isViewReply
-            )
-            viewModelScope.launch(Dispatchers.IO) {
-                if (!uid.isNullOrEmpty() && PrefManager.isRecordHistory)
-                    historyFavoriteRepo.saveHistory(
-                        id.toString(), uid.toString(), username.toString(), userAvatar.toString(),
-                        deviceTitle.toString(), message.toString(), dateline.toString()
-                    )
-            }
-        }
-
-        override fun onLikeClick(type: String, id: String, position: Int, likeData: Like) {
-            if (PrefManager.isLogin) {
-                if (PrefManager.SZLMID.isEmpty())
-                    toastText.postValue(Event(Constants.SZLM_ID))
-                else onPostLikeFeed(id, position, likeData)
-            }
-        }
-
-        override fun onBlockUser(id: String, uid: String, position: Int) {
-            viewModelScope.launch(Dispatchers.IO) {
-                repository.saveUid(uid)
-            }
-            val currentList = feedData.value?.toMutableList() ?: ArrayList()
-            currentList.removeAt(position)
-            feedData.postValue(currentList)
-        }
-
-        override fun onDeleteClicked(entityType: String, id: String, position: Int) {
-            onDeleteFeed("/v6/feed/deleteFeed", id, position)
-        }
-    }
-
-    fun onDeleteFeed(url: String, id: String, position: Int) {
-        viewModelScope.launch(Dispatchers.IO) {
-            networkRepo.postDelete(url, id)
-                .collect { result ->
-                    val response = result.getOrNull()
-                    if (response != null) {
-                        if (response.data == "删除成功") {
-                            toastText.postValue(Event("删除成功"))
-                            val updateList = feedData.value?.toMutableList() ?: ArrayList()
-                            updateList.removeAt(position)
-                            feedData.postValue(updateList)
-                        } else if (!response.message.isNullOrEmpty()) {
-                            response.message.let {
-                                toastText.postValue(Event(it))
-                            }
-                        }
-                    } else {
-                        result.exceptionOrNull()?.printStackTrace()
-                    }
-                }
-        }
-    }
-
-    fun onPostLikeFeed(id: String, position: Int, likeData: Like) {
-        val likeType = if (likeData.isLike.get() == 1) "unlike" else "like"
-        val likeUrl = "/v6/feed/$likeType"
-        viewModelScope.launch(Dispatchers.IO) {
-            networkRepo.postLikeFeed(likeUrl, id)
-                .collect { result ->
-                    val response = result.getOrNull()
-                    if (response != null) {
-                        if (response.data != null) {
-                            val count = response.data.count
-                            val isLike = if (likeData.isLike.get() == 1) 0 else 1
-                            likeData.likeNum.set(count)
-                            likeData.isLike.set(isLike)
-                            val currentList = feedData.value?.toMutableList() ?: ArrayList()
-                            currentList[position].likenum = count
-                            currentList[position].userAction?.like = isLike
-                            feedData.postValue(currentList)
-                        } else {
-                            response.message?.let {
-                                toastText.postValue(Event(it))
-                            }
                         }
                     } else {
                         result.exceptionOrNull()?.printStackTrace()
@@ -267,7 +171,30 @@ class UserViewModel @Inject constructor(
 
     fun saveUid(uid: String) {
         viewModelScope.launch(Dispatchers.IO) {
-            repository.saveUid(uid)
+            blackListRepo.saveUid(uid)
+        }
+    }
+
+    fun deleteUid(uid: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            blackListRepo.deleteUid(uid)
+        }
+    }
+
+    fun checkMenuState() {
+        checkUid(uid)
+        checkFollow()
+    }
+
+    private fun checkUid(uid: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            blockState.postValue(Event(blackListRepo.checkUid(uid)))
+        }
+    }
+
+    private fun checkFollow() {
+        viewModelScope.launch(Dispatchers.IO) {
+            followState.postValue(Event(userData?.isFollow ?: 0))
         }
     }
 

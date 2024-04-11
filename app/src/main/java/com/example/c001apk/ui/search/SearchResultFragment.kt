@@ -2,34 +2,39 @@ package com.example.c001apk.ui.search
 
 import android.os.Bundle
 import android.view.MenuItem
-import android.view.View
+import androidx.core.view.isVisible
+import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
-import androidx.viewpager2.adapter.FragmentStateAdapter
 import com.example.c001apk.R
-import com.example.c001apk.databinding.FragmentSearchResultBinding
-import com.example.c001apk.ui.base.BaseFragment
-import com.example.c001apk.ui.home.IOnTabClickContainer
-import com.example.c001apk.ui.home.IOnTabClickListener
+import com.example.c001apk.ui.base.BasePagerFragment
 import com.google.android.material.tabs.TabLayout
-import com.google.android.material.tabs.TabLayoutMediator
 import dagger.hilt.android.AndroidEntryPoint
+import javax.inject.Inject
 
 @AndroidEntryPoint
-class SearchResultFragment : BaseFragment<FragmentSearchResultBinding>(),
-    IOnSearchMenuClickContainer, IOnTabClickContainer {
+class SearchResultFragment : BasePagerFragment(), IOnSearchMenuClickContainer {
 
-    private val viewModel by viewModels<SearchContentViewModel>()
-    override var controller: IOnSearchMenuClickListener? = null
-    override var tabController: IOnTabClickListener? = null
+    @Inject
+    lateinit var viewModelAssistedFactory: SearchResultViewModel.Factory
+    private val viewModel by viewModels<SearchResultViewModel> {
+        SearchResultViewModel.provideFactory(
+            viewModelAssistedFactory,
+            arguments?.getString("keyWord").orEmpty(),
+            arguments?.getString("pageType").orEmpty(),
+            arguments?.getString("pageParam").orEmpty(),
+            arguments?.getString("title").orEmpty(),
+        )
+    }
     private lateinit var type: MenuItem
     private lateinit var order: MenuItem
+    override var controller: IOnSearchMenuClickListener? = null
 
     companion object {
         @JvmStatic
         fun newInstance(keyWord: String, pageType: String?, pageParam: String?, title: String?) =
             SearchResultFragment().apply {
                 arguments = Bundle().apply {
-                    putString("KEYWORD", keyWord)
+                    putString("keyWord", keyWord)
                     putString("pageType", pageType)
                     putString("pageParam", pageParam)
                     putString("title", title)
@@ -37,31 +42,101 @@ class SearchResultFragment : BaseFragment<FragmentSearchResultBinding>(),
             }
     }
 
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        arguments?.let {
-            viewModel.keyWord = it.getString("KEYWORD")
-            viewModel.pageType = it.getString("pageType")
-            viewModel.pageParam = it.getString("pageParam")
-            viewModel.title = it.getString("title")
+    override fun iOnTabSelected(tab: TabLayout.Tab?) {
+        when (tab?.position) {
+            0 -> {
+                type.isVisible = true
+                order.isVisible = true
+            }
+
+            else -> {
+                type.isVisible = false
+                order.isVisible = false
+            }
         }
     }
 
-    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
-        super.onViewCreated(view, savedInstanceState)
+    override fun getFragment(position: Int): Fragment =
+        if (viewModel.pageType.isEmpty()) {
+            when (position) {
+                0 -> SearchContentFragment.newInstance(
+                    viewModel.keyWord,
+                    "feed",
+                    null,
+                    null
+                )
 
-        binding.appBar.setLiftable(true)
+                1 -> SearchContentFragment.newInstance(
+                    viewModel.keyWord,
+                    "apk",
+                    null,
+                    null
+                )
 
-        initBar()
-        initData()
+                2 -> SearchContentFragment.newInstance(
+                    viewModel.keyWord,
+                    "game",
+                    null,
+                    null
+                )
 
+                3 -> SearchContentFragment.newInstance(
+                    viewModel.keyWord,
+                    "product",
+                    null,
+                    null
+                )
+
+                4 -> SearchContentFragment.newInstance(
+                    viewModel.keyWord,
+                    "user",
+                    null,
+                    null
+                )
+
+                5 -> SearchContentFragment.newInstance(
+                    viewModel.keyWord,
+                    "feedTopic",
+                    null,
+                    null
+                )
+
+                else -> throw IllegalArgumentException()
+            }
+        } else {
+            SearchContentFragment.newInstance(
+                viewModel.keyWord,
+                "feed",
+                viewModel.pageType,
+                viewModel.pageParam
+            )
+
+        }
+
+    override fun initTabList() {
+        tabList =
+            if (viewModel.pageType.isEmpty())
+                listOf("动态", "应用", "游戏", "数码", "用户", "话题")
+            else {
+                binding.tabLayout.isVisible = false
+                listOf("")
+            }
     }
 
-    private fun initBar() {
+    override fun onBackClick() {
+        activity?.supportFragmentManager?.popBackStack()
+    }
+
+    override fun initBar() {
+        super.initBar()
+        binding.collapsingToolbar.isTitleEnabled = false
         binding.toolBar.apply {
             title = viewModel.keyWord
+            setOnClickListener {
+                activity?.supportFragmentManager?.popBackStack()
+            }
             setTitleTextAppearance(requireContext(), R.style.Toolbar_TitleText)
-            if (!viewModel.pageType.isNullOrEmpty())
+            if (viewModel.pageType.isNotEmpty())
                 subtitle = when (viewModel.pageType) {
                     "tag" -> "话题: ${viewModel.title}"
                     "product_phone" -> "数码: ${viewModel.title}"
@@ -69,13 +144,7 @@ class SearchResultFragment : BaseFragment<FragmentSearchResultBinding>(),
                     "user" -> "用户: ${viewModel.title}"
                     else -> ""
                 }
-            setOnClickListener {
-                requireActivity().supportFragmentManager.popBackStack()
-            }
-            setNavigationIcon(R.drawable.ic_back)
-            setNavigationOnClickListener {
-                requireActivity().supportFragmentManager.popBackStack()
-            }
+
             inflateMenu(R.menu.search_menu)
             type = menu.findItem(R.id.type)
             order = menu.findItem(R.id.order)
@@ -139,13 +208,34 @@ class SearchResultFragment : BaseFragment<FragmentSearchResultBinding>(),
                         viewModel.feedType = "comment"
                         controller?.onSearch("feedType", "comment", null)
                     }
+
+                    R.id.typeRating -> {
+                        viewModel.feedType = "rating"
+                        controller?.onSearch("feedType", "rating", null)
+                    }
+
+                    R.id.typeQuestion -> {
+                        viewModel.feedType = "question"
+                        controller?.onSearch("feedType", "question", null)
+                    }
+
+                    R.id.typeAnswer -> {
+                        viewModel.feedType = "answer"
+                        controller?.onSearch("feedType", "answer", null)
+                    }
+
+                    R.id.typeVote -> {
+                        viewModel.feedType = "vote"
+                        controller?.onSearch("feedType", "vote", null)
+                    }
                 }
+
                 menu.findItem(
                     when (viewModel.sort) {
                         "default" -> R.id.feedDefault
                         "hot" -> R.id.feedHot
                         "reply" -> R.id.feedReply
-                        else -> throw IllegalArgumentException("type error")
+                        else -> throw IllegalArgumentException("sort type error: ${viewModel.sort}")
                     }
                 )?.isChecked = true
 
@@ -156,105 +246,15 @@ class SearchResultFragment : BaseFragment<FragmentSearchResultBinding>(),
                         "feedArticle" -> R.id.typeArticle
                         "picture" -> R.id.typePic
                         "comment" -> R.id.typeReply
-                        else -> throw IllegalArgumentException("type error")
+                        "rating" -> R.id.typeRating
+                        "question" -> R.id.typeQuestion
+                        "answer" -> R.id.typeAnswer
+                        "vote" -> R.id.typeVote
+                        else -> throw IllegalArgumentException("feed type error: ${viewModel.feedType}")
                     }
                 )?.isChecked = true
                 return@setOnMenuItemClickListener true
             }
         }
     }
-
-    private fun initData() {
-        viewModel.tabList =
-            if (viewModel.pageType.isNullOrEmpty())
-                arrayListOf("动态", "应用", "数码", "用户", "话题")
-            else {
-                binding.tabLayout.visibility = View.GONE
-                arrayListOf("null")
-            }
-        initView()
-    }
-
-    private fun initView() {
-        binding.viewPager.offscreenPageLimit = viewModel.tabList?.size ?: 0
-        binding.viewPager.adapter = object : FragmentStateAdapter(this) {
-            override fun createFragment(position: Int) =
-                if (viewModel.pageType.isNullOrEmpty()) {
-                    when (position) {
-                        0 -> SearchContentFragment.newInstance(
-                            viewModel.keyWord.toString(),
-                            "feed",
-                            null,
-                            null
-                        )
-
-                        1 -> SearchContentFragment.newInstance(
-                            viewModel.keyWord.toString(),
-                            "apk",
-                            null,
-                            null
-                        )
-
-                        2 -> SearchContentFragment.newInstance(
-                            viewModel.keyWord.toString(),
-                            "product",
-                            null,
-                            null
-                        )
-
-                        3 -> SearchContentFragment.newInstance(
-                            viewModel.keyWord.toString(),
-                            "user",
-                            null,
-                            null
-                        )
-
-                        4 -> SearchContentFragment.newInstance(
-                            viewModel.keyWord.toString(),
-                            "feedTopic",
-                            null,
-                            null
-                        )
-
-                        else -> throw IllegalArgumentException()
-                    }
-                } else {
-                    SearchContentFragment.newInstance(
-                        viewModel.keyWord.toString(),
-                        "feed",
-                        viewModel.pageType.toString(),
-                        viewModel.pageParam.toString()
-                    )
-
-                }
-
-            override fun getItemCount() = viewModel.tabList?.size ?: 0
-        }
-        TabLayoutMediator(binding.tabLayout, binding.viewPager) { tab, position ->
-            tab.text = viewModel.tabList?.get(position)
-        }.attach()
-        binding.tabLayout.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
-            override fun onTabSelected(tab: TabLayout.Tab?) {
-                when (tab?.position) {
-                    0 -> {
-                        type.isVisible = true
-                        order.isVisible = true
-                    }
-
-                    else -> {
-                        type.isVisible = false
-                        order.isVisible = false
-                    }
-                }
-            }
-
-            override fun onTabUnselected(tab: TabLayout.Tab?) {}
-
-            override fun onTabReselected(tab: TabLayout.Tab?) {
-                tabController?.onReturnTop(null)
-            }
-
-        })
-    }
-
 }

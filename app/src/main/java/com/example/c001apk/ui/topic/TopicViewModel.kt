@@ -1,74 +1,76 @@
 package com.example.c001apk.ui.topic
 
 import androidx.lifecycle.MutableLiveData
-import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.c001apk.adapter.LoadingState
+import com.example.c001apk.constant.Constants
+import com.example.c001apk.logic.model.HomeFeedResponse
 import com.example.c001apk.logic.model.TopicBean
 import com.example.c001apk.logic.repository.BlackListRepo
+import com.example.c001apk.logic.repository.HistoryFavoriteRepo
 import com.example.c001apk.logic.repository.NetworkRepo
+import com.example.c001apk.ui.base.BaseAppViewModel
 import com.example.c001apk.util.Event
+import dagger.assisted.Assisted
+import dagger.assisted.AssistedFactory
+import dagger.assisted.AssistedInject
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import javax.inject.Inject
 
-@HiltViewModel
-class TopicViewModel @Inject constructor(
-    private val repository: BlackListRepo,
-    private val networkRepo: NetworkRepo
-) : ViewModel() {
+@HiltViewModel(assistedFactory = TopicViewModel.Factory::class)
+class TopicViewModel @AssistedInject constructor(
+    @Assisted("url") var url: String,
+    @Assisted("title") val title: String,
+    @Assisted("id") var id: String,
+    @Assisted("type") var type: String,
+    blackListRepo: BlackListRepo,
+    historyRepo: HistoryFavoriteRepo,
+    networkRepo: NetworkRepo
+) : BaseAppViewModel(blackListRepo, historyRepo, networkRepo) {
 
-    var postFollowData: HashMap<String, String>? = null
-    var tag: String? = null
-    var followUrl: String? = null
-    var productTitle = "最近回复"
+    @AssistedFactory
+    interface Factory {
+        fun create(
+            @Assisted("url") url: String,
+            @Assisted("title") title: String,
+            @Assisted("id") id: String,
+            @Assisted("type") type: String
+        ): TopicViewModel
+    }
+
     var subtitle: String? = null
+    var productTitle = "最近回复"
+
+    var isAInit: Boolean = true
+    var postFollowData: HashMap<String, String>? = null
     var isFollow: Boolean = false
-    var isResume: Boolean = true
-    var id: String? = null
-    var title: String? = null
-    var url: String? = null
-    var type: String? = null
-    var isInit = true
-    var tabList = ArrayList<String>()
-    var position: Int = 0
-    val topicList: MutableList<TopicBean> = ArrayList()
-    var page = 1
-    var errorMessage: String? = null
-    var tabSelected: Int = 0
-    val doNext = MutableLiveData<Event<Boolean>>()
-    val showError = MutableLiveData<Event<Boolean>>()
+    var tabSelected: Int? = null
+    var topicList: List<TopicBean> = ArrayList()
+
+    val blockState = MutableLiveData<Event<Boolean>>()
+    val followState = MutableLiveData<Event<Boolean>>()
 
     fun fetchTopicLayout() {
         viewModelScope.launch(Dispatchers.IO) {
-            networkRepo.getTopicLayout(url.toString())
+            networkRepo.getTopicLayout(url)
                 .collect { result ->
                     val data = result.getOrNull()
-                    if (!data?.message.isNullOrEmpty()) {
-                        errorMessage = data?.message
-                        showError.postValue(Event(true))
-                        return@collect
-                    } else if (data?.data != null) {
-                        isFollow = data.data.userAction?.follow == 1
-                        if (tabList.isEmpty()) {
-                            id = data.data.id
+                    if (data != null) {
+                        if (!data.message.isNullOrEmpty()) {
+                            activityState.postValue(LoadingState.LoadingError(data.message))
+                            return@collect
+                        } else if (data.data != null) {
+                            isFollow = data.data.userAction?.follow == 1
+                            id = data.data.id ?: ""
                             type = data.data.entityType
                             subtitle = data.data.intro
-
-                            data.data.tabList.forEach {
-                                tabList.add(it.title)
-                                topicList.add(TopicBean(it.url, it.title))
-                            }
-                            run breaking@{
-                                data.data.tabList.forEach {
-                                    if (data.data.selectedTab == it.pageName) return@breaking
-                                    else tabSelected++
-                                }
-                            }
+                            getTopicList(data.data.tabList, data.data.selectedTab.toString())
+                            checkFollow()
+                            activityState.postValue(LoadingState.LoadingDone)
                         }
-                        doNext.postValue(Event(true))
                     } else {
-                        doNext.postValue(Event(false))
+                        activityState.postValue(LoadingState.LoadingFailed(Constants.LOADING_FAILED))
                         result.exceptionOrNull()?.printStackTrace()
                     }
                 }
@@ -78,51 +80,55 @@ class TopicViewModel @Inject constructor(
 
     fun fetchProductLayout() {
         viewModelScope.launch(Dispatchers.IO) {
-            networkRepo.getProductLayout(id.toString())
+            networkRepo.getProductLayout(id)
                 .collect { result ->
                     val data = result.getOrNull()
-                    if (!data?.message.isNullOrEmpty()) {
-                        errorMessage = data?.message
-                        showError.postValue(Event(true))
-                        return@collect
-                    } else if (data?.data != null) {
-                        isFollow = data.data.userAction?.follow == 1
-                        if (tabList.isEmpty()) {
+                    if (data != null) {
+                        if (!data.message.isNullOrEmpty()) {
+                            activityState.postValue(LoadingState.LoadingError(data.message))
+                            return@collect
+                        } else if (data.data != null) {
+                            isFollow = data.data.userAction?.follow == 1
                             subtitle = data.data.intro
-
-                            data.data.tabList.forEach {
-                                tabList.add(it.title)
-                                topicList.add(TopicBean(it.url, it.title))
-                            }
-                            run breaking@{
-                                data.data.tabList.forEach {
-                                    if (data.data.selectedTab == it.pageName) return@breaking
-                                    else tabSelected++
-                                }
-                            }
+                            getTopicList(data.data.tabList, data.data.selectedTab.toString())
+                            checkFollow()
+                            activityState.postValue(LoadingState.LoadingDone)
                         }
-                        doNext.postValue(Event(true))
                     } else {
-                        doNext.postValue(Event(false))
+                        activityState.postValue(LoadingState.LoadingFailed(Constants.LOADING_FAILED))
                         result.exceptionOrNull()?.printStackTrace()
                     }
                 }
         }
     }
 
-    val afterFollow = MutableLiveData<Event<Pair<Boolean, String>>>()
-    fun onGetFollow() {
+    private fun getTopicList(tabList: List<HomeFeedResponse.TabList>?, selectedTab: String) {
+        topicList = tabList?.map {
+            TopicBean(it.url.toString(), it.title.toString())
+        } ?: emptyList()
+        run breaking@{
+            tabList?.forEachIndexed { index, tab ->
+                if (selectedTab == tab.pageName) {
+                    tabSelected = index
+                    return@breaking
+                }
+            }
+        }
+    }
+
+    // follow app/topic
+    fun onGetFollow(followUrl: String, tag: String?, id: String?) {
         viewModelScope.launch(Dispatchers.IO) {
-            networkRepo.getFollow(followUrl.toString(), tag, null)
+            networkRepo.getFollow(followUrl, tag, id)
                 .collect { result ->
                     val response = result.getOrNull()
                     if (response != null) {
                         if (!response.message.isNullOrEmpty()) {
                             if (response.message.contains("关注成功")) {
                                 isFollow = !isFollow
-                                afterFollow.postValue(Event(Pair(true, response.message)))
-                            } else
-                                afterFollow.postValue(Event(Pair(false, response.message)))
+                                checkFollow()
+                            }
+                            toastText.postValue(Event(response.message))
                         }
                     } else {
                         result.exceptionOrNull()?.printStackTrace()
@@ -131,6 +137,7 @@ class TopicViewModel @Inject constructor(
         }
     }
 
+    // follow product
     fun onPostFollow() {
         viewModelScope.launch(Dispatchers.IO) {
             postFollowData?.let {
@@ -141,24 +148,35 @@ class TopicViewModel @Inject constructor(
                             if (!response.message.isNullOrEmpty()) {
                                 if (response.message.contains("手机吧成功")) {
                                     isFollow = !isFollow
-                                    afterFollow.postValue(Event(Pair(true, response.message)))
-                                } else
-                                    afterFollow.postValue(Event(Pair(false, response.message)))
+                                    checkFollow()
+                                }
+                                toastText.postValue(Event(response.message))
                             }
                         } else {
                             result.exceptionOrNull()?.printStackTrace()
                         }
-
                     }
             }
-
         }
     }
 
-    fun saveTopic(title: String) {
+    private fun checkTopic(title: String) {
         viewModelScope.launch(Dispatchers.IO) {
-            repository.saveTopic(title)
+            blockState.postValue(Event(blackListRepo.checkTopic(title)))
         }
+    }
+
+    private fun checkFollow() {
+        viewModelScope.launch(Dispatchers.IO) {
+            followState.postValue(Event(isFollow))
+        }
+    }
+
+    override fun fetchData() {}
+
+    fun checkMenuState() {
+        checkTopic(title)
+        checkFollow()
     }
 
 }

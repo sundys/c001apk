@@ -7,6 +7,7 @@ import android.view.ViewGroup
 import android.widget.BaseAdapter
 import android.widget.TextView
 import androidx.core.graphics.ColorUtils
+import androidx.core.view.isVisible
 import androidx.core.view.setPadding
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
@@ -28,7 +29,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 class FeedReplyAdapter(
-    private val repository: BlackListRepo,
+    private val blackListRepo: BlackListRepo,
     private val listener: ItemListener
 ) :
     ListAdapter<TotalReplyResponse.Data, FeedReplyAdapter.ViewHolder>(FeedReplyDiffCallback()) {
@@ -47,19 +48,12 @@ class FeedReplyAdapter(
         var uid: String = ""
         var username: String = ""
         var message: String = ""
-        var likeData: Like = Like()
 
         init {
             itemView.setOnClickListener {
                 listener.onReply(
                     id, uid, username,
                     bindingAdapterPosition, null
-                )
-            }
-
-            binding.like.setOnClickListener {
-                listener.onLikeClick(
-                    "feedReply", id, bindingAdapterPosition, likeData
                 )
             }
 
@@ -76,7 +70,7 @@ class FeedReplyAdapter(
             reply: TotalReplyResponse.Data,
             haveTop: Boolean,
             topReplyId: String?,
-            repository: BlackListRepo
+            blackListRepo: BlackListRepo
         ) {
 
             if (!reply.username.contains("[楼主]") && !reply.username.contains("[置顶]")) {
@@ -104,23 +98,20 @@ class FeedReplyAdapter(
 
             binding.setVariable(BR.data, reply)
             binding.setVariable(BR.listener, listener)
-            likeData = Like().also {
-                it.likeNum.set(reply.likenum)
-                reply.userAction?.like?.let { like ->
-                    it.isLike.set(like)
-                }
-            }
-            binding.setVariable(BR.likeData, likeData)
+            binding.setVariable(
+                BR.likeData, Like(
+                    reply.likenum,
+                    reply.userAction?.like ?: 0
+                )
+            )
 
             if (!reply.replyRows.isNullOrEmpty()) {
                 CoroutineScope(Dispatchers.Main).launch {
-                    val sortedList = ArrayList<TotalReplyResponse.Data>()
-                    reply.replyRows.forEach {
-                        if (!repository.checkUid(it.uid))
-                            sortedList.add(it)
+                    val sortedList = reply.replyRows.filter {
+                        !blackListRepo.checkUid(it.uid)
                     }
                     if (sortedList.isNotEmpty()) {
-                        binding.replyLayout.visibility = View.VISIBLE
+                        binding.replyLayout.isVisible = true
                         if (itemView.layoutParams is StaggeredGridLayoutManager.LayoutParams) {
                             binding.replyLayout.setCardBackgroundColor(
                                 MaterialColors.getColor(
@@ -135,7 +126,7 @@ class FeedReplyAdapter(
                             override fun getItem(p0: Int): Any = 0
                             override fun getItemId(p0: Int): Long = 0
                             override fun getView(
-                                position1: Int,
+                                position: Int,
                                 convertView: View?,
                                 parent: ViewGroup
                             ): View {
@@ -144,7 +135,7 @@ class FeedReplyAdapter(
                                     parent,
                                     false
                                 )
-                                val replyData = sortedList[position1]
+                                val replyData = sortedList[position]
                                 val textView: TextView = view.findViewById(R.id.reply)
                                 textView.highlightColor = ColorUtils.setAlphaComponent(
                                     MaterialColors.getColor(
@@ -190,24 +181,31 @@ class FeedReplyAdapter(
                                     mess,
                                     textView.textSize,
                                     replyData.picArr
-                                )
+                                ) {
+                                    listener.showTotalReply(
+                                        reply.id,
+                                        reply.uid,
+                                        bindingAdapterPosition,
+                                        null
+                                    )
+                                }
 
                                 SpannableStringBuilderUtil.setData(
-                                    position1 + 1,
+                                    position + 1,
                                     reply.uid
                                 )
 
                                 view.setOnClickListener {
                                     listener.onReply(
                                         replyData.id, replyData.uid, replyData.username,
-                                        bindingAdapterPosition, position1
+                                        bindingAdapterPosition, position
                                     )
                                 }
 
                                 view.setOnLongClickListener {
                                     listener.onExpand(
                                         it, replyData.id, replyData.uid,
-                                        replyData.message, bindingAdapterPosition, position1
+                                        replyData.message, bindingAdapterPosition, position
                                     )
                                     true
                                 }
@@ -215,13 +213,13 @@ class FeedReplyAdapter(
                                 return view
                             }
                         }
-                    } else binding.replyLayout.visibility = View.GONE
+                    } else binding.replyLayout.isVisible = false
                 }
-            } else binding.replyLayout.visibility = View.GONE
+            } else binding.replyLayout.isVisible = false
 
             if (reply.replyRowsMore != 0) {
-                binding.totalReply.visibility = View.VISIBLE
-                val count = reply.replyRowsMore + (reply.replyRows?.size ?: 0)
+                binding.totalReply.isVisible = true
+                val count = (reply.replyRowsMore ?: 0) + (reply.replyRows?.size ?: 0)
                 binding.totalReply.text = "查看更多回复($count)"
                 binding.totalReply.setOnClickListener {
                     listener.showTotalReply(
@@ -231,7 +229,7 @@ class FeedReplyAdapter(
                     )
                 }
             } else
-                binding.totalReply.visibility = View.GONE
+                binding.totalReply.isVisible = false
 
             binding.executePendingBindings()
         }
@@ -243,21 +241,39 @@ class FeedReplyAdapter(
             parent,
             false
         )
-        binding.root.also {
-            if (it.layoutParams is StaggeredGridLayoutManager.LayoutParams) {
-                it.background = parent.context.getDrawable(R.drawable.text_card_bg)
-                it.foreground = parent.context.getDrawable(R.drawable.selector_bg_12_trans)
-                it.setPadding(10.dp)
+        binding.root.apply {
+            if (layoutParams is StaggeredGridLayoutManager.LayoutParams) {
+                background = parent.context.getDrawable(R.drawable.text_card_bg)
+                foreground = parent.context.getDrawable(R.drawable.selector_bg_12_trans)
+                setPadding(10.dp)
             } else {
-                it.foreground = parent.context.getDrawable(R.drawable.selector_bg_trans)
-                it.setPadding(15.dp, 12.dp, 15.dp, 12.dp)
+                foreground = parent.context.getDrawable(R.drawable.selector_bg_trans)
+                setPadding(15.dp, 12.dp, 15.dp, 12.dp)
             }
         }
         return ViewHolder(binding, listener)
     }
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
-        holder.bind(currentList[position], haveTop, topReplyId, repository)
+        holder.bind(currentList[position], haveTop, topReplyId, blackListRepo)
+    }
+
+    override fun onBindViewHolder(
+        holder: ViewHolder,
+        position: Int,
+        payloads: MutableList<Any>
+    ) {
+        if (payloads.isEmpty()) {
+            onBindViewHolder(holder, position)
+        } else {
+            if (payloads[0] == true) {
+                holder.binding.likeData = Like(
+                    currentList[position].likenum,
+                    currentList[position].userAction?.like ?: 0
+                )
+                holder.binding.executePendingBindings()
+            }
+        }
     }
 
 }
@@ -274,6 +290,13 @@ class FeedReplyDiffCallback : DiffUtil.ItemCallback<TotalReplyResponse.Data>() {
         oldItem: TotalReplyResponse.Data,
         newItem: TotalReplyResponse.Data
     ): Boolean {
-        return oldItem.id == newItem.id && oldItem.username == newItem.username
+        return oldItem.likenum == newItem.likenum
+    }
+
+    override fun getChangePayload(
+        oldItem: TotalReplyResponse.Data,
+        newItem: TotalReplyResponse.Data
+    ): Any? {
+        return if (oldItem.likenum != newItem.likenum) true else null
     }
 }

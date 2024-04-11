@@ -7,6 +7,7 @@ import com.example.c001apk.logic.model.HomeFeedResponse
 import com.example.c001apk.logic.model.LikeFeedResponse
 import com.example.c001apk.logic.model.LikeReplyResponse
 import com.example.c001apk.logic.model.MessageResponse
+import com.example.c001apk.logic.model.PostReplyResponse
 import com.example.c001apk.logic.model.TotalReplyResponse
 import com.example.c001apk.logic.model.UpdateCheckResponse
 import com.example.c001apk.logic.model.UserProfileResponse
@@ -169,7 +170,7 @@ interface ApiService {
         @FieldMap data: HashMap<String, String>,
         @Query("id") id: String,
         @Query("type") type: String
-    ): Call<CheckResponse>
+    ): Call<PostReplyResponse>
 
     @GET("/v6/page/dataList")
     fun getDataList(
@@ -229,6 +230,15 @@ interface ApiService {
     fun getVoteComment(
         @Query("fid") fid: String,
         @Query("extra_key") extraKey: String,
+        @Query("page") page: Int,
+        @Query("firstItem") firstItem: String?,
+        @Query("lastItem") lastItem: String?,
+    ): Call<TotalReplyResponse>
+
+    @GET("/v6/question/answerList")
+    fun getAnswerList(
+        @Query("id") fid: String,
+        @Query("sort") sort: String,
         @Query("page") page: Int,
         @Query("firstItem") firstItem: String?,
         @Query("lastItem") lastItem: String?,

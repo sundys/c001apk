@@ -6,6 +6,7 @@ import android.view.ViewGroup
 import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.TextView
+import androidx.core.view.isVisible
 import androidx.recyclerview.widget.RecyclerView
 import androidx.recyclerview.widget.StaggeredGridLayoutManager
 import com.example.c001apk.R
@@ -14,20 +15,10 @@ import com.google.android.material.progressindicator.CircularProgressIndicator
 class FooterAdapter(private val listener: FooterListener) :
     RecyclerView.Adapter<FooterAdapter.FooterViewHolder>() {
 
-    enum class LoadState {
-        LOADING,
-        LOADING_COMPLETE,
-        LOADING_END,
-        LOADING_ERROR,
-        LOADING_REPLY
-    }
+    private var footerState: FooterState = FooterState.LoadingDone
 
-    private var loadState = LoadState.LOADING_COMPLETE
-    private var errorMessage: String? = null
-
-    fun setLoadState(loadState: LoadState, errorMessage: String?) {
-        this.loadState = loadState
-        this.errorMessage = errorMessage
+    fun setLoadState(footerState: FooterState) {
+        this.footerState = footerState
         notifyItemChanged(0)
     }
 
@@ -54,53 +45,33 @@ class FooterAdapter(private val listener: FooterListener) :
             lp.isFullSpan = true
         } else {
             holder.footerLayout.layoutParams =
-                if (loadState == LoadState.LOADING_REPLY) {
-                    FrameLayout.LayoutParams(
-                        FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    if (footerState == FooterState.LoadingReply)
                         FrameLayout.LayoutParams.MATCH_PARENT
-                    )
-                } else
-                    FrameLayout.LayoutParams(
-                        FrameLayout.LayoutParams.MATCH_PARENT,
-                        FrameLayout.LayoutParams.WRAP_CONTENT
-                    )
-        }
-
-        when (loadState) {
-
-            LoadState.LOADING, LoadState.LOADING_REPLY -> {
-                holder.indicator.visibility = View.VISIBLE
-                holder.indicator.isIndeterminate = true
-                holder.noMore.visibility = View.INVISIBLE
-                holder.retry.visibility = View.GONE
-
-            }
-
-            LoadState.LOADING_COMPLETE -> {
-                holder.indicator.visibility = View.INVISIBLE
-                holder.indicator.isIndeterminate = false
-                holder.noMore.visibility = View.INVISIBLE
-                holder.retry.visibility = View.GONE
-            }
-
-            LoadState.LOADING_END -> {
-                holder.indicator.visibility = View.INVISIBLE
-                holder.indicator.isIndeterminate = false
-                holder.noMore.visibility = View.VISIBLE
-                holder.noMore.text = "没有更多了"
-                holder.retry.visibility = View.GONE
-            }
-
-            LoadState.LOADING_ERROR -> {
-                holder.indicator.visibility = View.INVISIBLE
-                holder.indicator.isIndeterminate = false
-                holder.noMore.text = errorMessage
-                holder.noMore.visibility = View.VISIBLE
-                holder.retry.visibility = View.VISIBLE
-            }
+                    else FrameLayout.LayoutParams.WRAP_CONTENT
+                )
 
         }
 
+        when (footerState) {
+            FooterState.Loading, FooterState.LoadingReply, FooterState.LoadingDone -> {}
+
+            is FooterState.LoadingEnd -> {
+                holder.noMore.text = (footerState as FooterState.LoadingEnd).msg
+            }
+
+            is FooterState.LoadingError -> {
+                holder.noMore.text = (footerState as FooterState.LoadingError).errMsg
+            }
+        }
+        holder.indicator.isIndeterminate = footerState is FooterState.Loading
+                || footerState is FooterState.LoadingReply
+        holder.indicator.isVisible = footerState is FooterState.Loading
+                || footerState is FooterState.LoadingReply
+        holder.noMore.isVisible = footerState is FooterState.LoadingEnd
+                || footerState is FooterState.LoadingError
+        holder.retry.isVisible = footerState is FooterState.LoadingError
     }
 
     override fun getItemCount() = 1

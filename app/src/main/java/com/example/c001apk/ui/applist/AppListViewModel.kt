@@ -4,17 +4,18 @@ import android.content.Context
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import androidx.lifecycle.MutableLiveData
-import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.c001apk.adapter.LoadingState
 import com.example.c001apk.logic.model.AppItem
 import com.example.c001apk.logic.model.UpdateCheckResponse
 import com.example.c001apk.logic.repository.NetworkRepo
+import com.example.c001apk.ui.base.BaseViewModel
+import com.example.c001apk.util.PrefManager
 import com.example.c001apk.util.Utils
 import com.example.c001apk.util.Utils.getBase64
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import rikka.core.content.pm.longVersionCodeCompat
 import javax.inject.Inject
@@ -22,14 +23,13 @@ import javax.inject.Inject
 @HiltViewModel
 class AppListViewModel @Inject constructor(
     private val networkRepo: NetworkRepo
-): ViewModel() {
-
-    var isInit: Boolean = true
-    var listSize: Int = -1
+) : BaseViewModel() {
 
     val setFab: MutableLiveData<Boolean> = MutableLiveData()
     val items: MutableLiveData<List<AppItem>> = MutableLiveData()
     val appsUpdate = ArrayList<UpdateCheckResponse.Data>()
+
+    override fun fetchData() {}
 
     private fun fetchAppsUpdate(pkg: String) {
         viewModelScope.launch(Dispatchers.IO) {
@@ -74,11 +74,11 @@ class AppListViewModel @Inject constructor(
                 }
             }
 
-            withContext(Dispatchers.Main) {
-                items.value =
-                    newItems.sortedByDescending { it.lastUpdateTime }.toCollection(ArrayList())
+            isEnd = true
+            items.postValue(newItems.sortedByDescending { it.lastUpdateTime })
+            if (PrefManager.isCheckUpdate)
                 fetchAppsUpdate(updateCheckJsonObject.toString().getBase64(false))
-            }
+            loadingState.postValue(LoadingState.LoadingDone)
         }
     }
 

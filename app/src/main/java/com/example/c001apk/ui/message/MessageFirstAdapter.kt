@@ -15,11 +15,13 @@ import com.example.c001apk.util.PrefManager
 class MessageFirstAdapter
     : RecyclerView.Adapter<MessageFirstAdapter.FirstViewHolder>() {
 
-    private var ffflist: MutableList<String>? = null
+    private var ffflist: List<String>? = null
 
-    fun setFFFList(ffflist: MutableList<String>) {
-        this.ffflist = ffflist
-        notifyItemChanged(0)
+    fun setFFFList(ffflist: List<String>) {
+        if (ffflist.isNotEmpty()) {
+            this.ffflist = ffflist
+            notifyItemChanged(0)
+        }
     }
 
     private val fffTitle = ArrayList<String>()
@@ -48,21 +50,18 @@ class MessageFirstAdapter
                 R.id.feedLayout ->
                     IntentUtil.startActivity<FFFListActivity>(itemView.context) {
                         putExtra("uid", PrefManager.uid)
-                        putExtra("isEnable", false)
                         putExtra("type", "feed")
                     }
 
                 R.id.followLayout ->
                     IntentUtil.startActivity<FFFListActivity>(itemView.context) {
                         putExtra("uid", PrefManager.uid)
-                        putExtra("isEnable", true)
                         putExtra("type", "follow")
                     }
 
                 R.id.fansLayout ->
                     IntentUtil.startActivity<FFFListActivity>(itemView.context) {
                         putExtra("uid", PrefManager.uid)
-                        putExtra("isEnable", false)
                         putExtra("type", "fans")
                     }
             }

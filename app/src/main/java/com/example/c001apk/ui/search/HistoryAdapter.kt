@@ -5,6 +5,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.TextView
+import androidx.core.view.isVisible
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
@@ -31,17 +32,14 @@ class HistoryAdapter :
             LayoutInflater.from(parent.context).inflate(R.layout.item_search_history, parent, false)
         val viewHolder = ViewHolder(view)
         viewHolder.keyWord.setOnLongClickListener {
-            if (viewHolder.delete.visibility == View.GONE)
-                viewHolder.delete.visibility = View.VISIBLE
-            else
-                viewHolder.delete.visibility = View.GONE
+            viewHolder.delete.isVisible = viewHolder.delete.visibility == View.GONE
             true
         }
         viewHolder.delete.setOnClickListener {
             iOnItemClickListener.onItemDeleteClick(
                 viewHolder.keyWord.text.toString()
             )
-            viewHolder.delete.visibility = View.GONE
+            viewHolder.delete.isVisible = false
         }
         viewHolder.keyWord.setOnClickListener {
             iOnItemClickListener.onItemClick(viewHolder.keyWord.text.toString())

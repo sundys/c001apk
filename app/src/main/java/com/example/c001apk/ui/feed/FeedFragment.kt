@@ -1,5 +1,6 @@
 package com.example.c001apk.ui.feed
 
+import android.animation.ObjectAnimator
 import android.annotation.SuppressLint
 import android.content.res.Configuration
 import android.os.Bundle
@@ -12,6 +13,10 @@ import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.widget.PopupMenu
 import androidx.coordinatorlayout.widget.CoordinatorLayout
 import androidx.core.graphics.ColorUtils
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.isVisible
+import androidx.core.view.updateLayoutParams
 import androidx.fragment.app.viewModels
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.ConcatAdapter
@@ -21,23 +26,21 @@ import androidx.recyclerview.widget.StaggeredGridLayoutManager
 import com.absinthe.libraries.utils.extensions.dp
 import com.example.c001apk.R
 import com.example.c001apk.adapter.FooterAdapter
+import com.example.c001apk.adapter.FooterState
 import com.example.c001apk.adapter.HeaderAdapter
 import com.example.c001apk.adapter.ItemListener
 import com.example.c001apk.constant.Constants.SZLM_ID
 import com.example.c001apk.databinding.FragmentFeedBinding
 import com.example.c001apk.databinding.ItemCaptchaBinding
 import com.example.c001apk.logic.model.FeedEntity
-import com.example.c001apk.logic.model.Like
 import com.example.c001apk.ui.base.BaseFragment
 import com.example.c001apk.ui.feed.reply.IOnPublishClickListener
 import com.example.c001apk.ui.feed.reply.Reply2ReplyBottomSheetDialog
 import com.example.c001apk.ui.feed.reply.ReplyBottomSheetDialog
 import com.example.c001apk.ui.feed.reply.ReplyRefreshListener
-import com.example.c001apk.ui.main.INavViewContainer
 import com.example.c001apk.ui.others.CopyActivity
 import com.example.c001apk.ui.others.WebViewActivity
 import com.example.c001apk.util.ClipboardUtil
-import com.example.c001apk.util.DensityTool
 import com.example.c001apk.util.IntentUtil
 import com.example.c001apk.util.PrefManager
 import com.example.c001apk.util.ToastUtil
@@ -51,13 +54,13 @@ import com.google.android.material.floatingactionbutton.FloatingActionButton
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+import kotlin.math.abs
 
 @AndroidEntryPoint
 class FeedFragment : BaseFragment<FragmentFeedBinding>(), IOnPublishClickListener {
 
     private val viewModel by viewModels<FeedViewModel>(ownerProducer = { requireActivity() })
-    private var bottomSheetDialog: ReplyBottomSheetDialog? = null
+    private val isPortrait by lazy { resources.configuration.orientation == Configuration.ORIENTATION_PORTRAIT }
     private lateinit var feedDataAdapter: FeedDataAdapter
     private lateinit var feedReplyAdapter: FeedReplyAdapter
     private lateinit var feedFixAdapter: FeedFixAdapter
@@ -65,12 +68,18 @@ class FeedFragment : BaseFragment<FragmentFeedBinding>(), IOnPublishClickListene
     private lateinit var mLayoutManager: LinearLayoutManager
     private lateinit var sLayoutManager: StaggeredGridLayoutManager
     private val fabViewBehavior by lazy { HideBottomViewOnScrollBehavior<FloatingActionButton>() }
+    private var bottomSheetDialog: ReplyBottomSheetDialog? = null
     private var dialog: AlertDialog? = null
+    private var isShowReply: Boolean = false
+    private var firstVisibleItemPosition = 0
+    private val alpha by lazy {
+        ObjectAnimator.ofFloat(binding.titleProfile, "alpha", 0f, 1f).also {
+            it.setDuration(500)
+        }
+    }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-
-        binding.appBar.setLiftable(true)
 
         initView()
         initToolBar()
@@ -84,17 +93,17 @@ class FeedFragment : BaseFragment<FragmentFeedBinding>(), IOnPublishClickListene
     }
 
     private fun initRefresh() {
-        binding.swipeRefresh.setColorSchemeColors(
-            MaterialColors.getColor(
-                requireContext(),
-                com.google.android.material.R.attr.colorPrimary,
-                0
+        binding.swipeRefresh.apply {
+            setColorSchemeColors(
+                MaterialColors.getColor(
+                    requireContext(),
+                    com.google.android.material.R.attr.colorPrimary,
+                    0
+                )
             )
-        )
-        binding.swipeRefresh.setOnRefreshListener {
-            binding.indicator.parent.isIndeterminate = false
-            binding.indicator.parent.visibility = View.GONE
-            refresh()
+            setOnRefreshListener {
+                refreshData()
+            }
         }
     }
 
@@ -120,21 +129,14 @@ class FeedFragment : BaseFragment<FragmentFeedBinding>(), IOnPublishClickListene
     private fun initReplyBtn() {
         if (PrefManager.isLogin) {
             binding.reply.apply {
-                visibility = View.VISIBLE
-                val lp = CoordinatorLayout.LayoutParams(
+                isVisible = true
+                layoutParams = CoordinatorLayout.LayoutParams(
                     CoordinatorLayout.LayoutParams.WRAP_CONTENT,
                     CoordinatorLayout.LayoutParams.WRAP_CONTENT
-                )
-                lp.setMargins(
-                    0, 0, 25.dp,
-                    if (resources.configuration.orientation == Configuration.ORIENTATION_PORTRAIT)
-                        DensityTool.getNavigationBarHeight(requireContext()) + 25.dp
-                    else 25.dp
-                )
-                lp.gravity = Gravity.BOTTOM or Gravity.END
-                layoutParams = lp
-                (layoutParams as CoordinatorLayout.LayoutParams).behavior = fabViewBehavior
-
+                ).apply {
+                    gravity = Gravity.BOTTOM or Gravity.END
+                    behavior = fabViewBehavior
+                }
                 setOnClickListener {
                     if (PrefManager.SZLMID == "") {
                         Toast.makeText(requireContext(), SZLM_ID, Toast.LENGTH_SHORT)
@@ -148,8 +150,17 @@ class FeedFragment : BaseFragment<FragmentFeedBinding>(), IOnPublishClickListene
                     }
                 }
             }
+            ViewCompat.setOnApplyWindowInsetsListener(binding.reply) { _, insets ->
+                val navigationBars = insets.getInsets(WindowInsetsCompat.Type.navigationBars())
+                binding.reply.updateLayoutParams<CoordinatorLayout.LayoutParams> {
+                    rightMargin = 25.dp
+                    bottomMargin = if (isPortrait) navigationBars.bottom + 25.dp
+                    else 25.dp
+                }
+                insets
+            }
         } else
-            binding.reply.visibility = View.GONE
+            binding.reply.isVisible = false
     }
 
     private fun initReply() {
@@ -167,28 +178,13 @@ class FeedFragment : BaseFragment<FragmentFeedBinding>(), IOnPublishClickListene
             override fun onScrollStateChanged(recyclerView: RecyclerView, newState: Int) {
                 super.onScrollStateChanged(recyclerView, newState)
                 if (newState == RecyclerView.SCROLL_STATE_IDLE) {
-
-                    if (viewModel.listSize != -1 && isAdded) {
-                        if (resources.configuration.orientation == Configuration.ORIENTATION_PORTRAIT) {
-                            viewModel.lastVisibleItemPosition =
-                                mLayoutManager.findLastVisibleItemPosition()
-                            viewModel.firstVisibleItemPosition =
-                                mLayoutManager.findFirstVisibleItemPosition()
-                        } else {
-                            val positions = sLayoutManager.findLastVisibleItemPositions(null)
-                            viewModel.lastVisibleItemPosition = positions[0]
-                            positions.forEach { pos ->
-                                if (pos > viewModel.lastVisibleItemPosition) {
-                                    viewModel.lastVisibleItemPosition = pos
-                                }
-                            }
-                        }
-                    }
+                    viewModel.lastVisibleItemPosition =
+                        if (isPortrait) mLayoutManager.findLastVisibleItemPosition()
+                        else sLayoutManager.findLastVisibleItemPositions(null).max()
 
                     if (viewModel.lastVisibleItemPosition == viewModel.listSize + viewModel.itemCount + 1
                         && !viewModel.isEnd && !viewModel.isRefreshing && !viewModel.isLoadMore
                     ) {
-                        viewModel.page++
                         loadMore()
                     }
                 }
@@ -196,13 +192,16 @@ class FeedFragment : BaseFragment<FragmentFeedBinding>(), IOnPublishClickListene
 
             override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
                 super.onScrolled(recyclerView, dx, dy)
-                if (viewModel.listSize != -1) {
-                    if (dy > 0) {
-                        (activity as? INavViewContainer)?.hideNavigationView()
-                    } else if (dy < 0) {
-                        (activity as? INavViewContainer)?.showNavigationView()
-                    }
-                }
+                firstVisibleItemPosition =
+                    if (isPortrait) mLayoutManager.findFirstVisibleItemPosition()
+                    else sLayoutManager.findFirstVisibleItemPositions(null).min()
+                val shouldShow =
+                    if (firstVisibleItemPosition <= 1) scrollYDistance >= 40.dp
+                    else true
+                binding.toolBar.title = if (shouldShow) null else viewModel.feedTypeName
+                if (shouldShow && !binding.titleProfile.isVisible)
+                    alpha.start()
+                binding.titleProfile.isVisible = shouldShow
             }
         })
     }
@@ -213,10 +212,10 @@ class FeedFragment : BaseFragment<FragmentFeedBinding>(), IOnPublishClickListene
     }
 
     private fun initObserve() {
-
-        viewModel.afterFollow.observe(viewLifecycleOwner) { event ->
+        viewModel.feedUserState.observe(viewLifecycleOwner) { event ->
             event.getContentIfNotHandledOrReturnNull()?.let {
-                feedDataAdapter.notifyItemChanged(0)
+                if (it)
+                    feedDataAdapter.notifyItemChanged(0, true)
             }
         }
 
@@ -284,24 +283,12 @@ class FeedFragment : BaseFragment<FragmentFeedBinding>(), IOnPublishClickListene
             }
         }
 
-        viewModel.changeState.observe(viewLifecycleOwner) {
-            footerAdapter.setLoadState(it.first, it.second)
-            if (it.first != FooterAdapter.LoadState.LOADING) {
+        viewModel.footerState.observe(viewLifecycleOwner) {
+            footerAdapter.setLoadState(it)
+            if (it !is FooterState.Loading) {
                 binding.swipeRefresh.isRefreshing = false
                 binding.indicator.parent.isIndeterminate = false
-                binding.indicator.parent.visibility = View.GONE
-                viewModel.isLoadMore = false
-                viewModel.isRefreshing = false
-            }
-        }
-
-        viewModel.feedReplyData.observe(viewLifecycleOwner) {
-            viewModel.listSize = it.size
-            feedReplyAdapter.submitList(it)
-            if (viewModel.isViewReply == true) {
-                viewModel.isViewReply = false
-                if (viewModel.firstVisibleItemPosition > viewModel.itemCount)
-                    scrollToPosition(viewModel.itemCount)
+                binding.indicator.parent.isVisible = false
             }
             if (dialog != null) {
                 dialog?.dismiss()
@@ -309,32 +296,32 @@ class FeedFragment : BaseFragment<FragmentFeedBinding>(), IOnPublishClickListene
             }
         }
 
+        viewModel.feedReplyData.observe(viewLifecycleOwner) {
+            viewModel.listSize = it.size
+            feedReplyAdapter.submitList(it)
+            if (viewModel.isViewReply) {
+                viewModel.isViewReply = false
+                if (firstVisibleItemPosition > viewModel.itemCount)
+                    scrollToPosition(viewModel.itemCount)
+            }
+        }
+
     }
 
     private fun scrollToPosition(position: Int) {
-        if (resources.configuration.orientation == Configuration.ORIENTATION_PORTRAIT)
-            mLayoutManager.scrollToPositionWithOffset(position, 0)
-        else
-            sLayoutManager.scrollToPositionWithOffset(position, 0)
+        binding.recyclerView.scrollToPosition(position)
     }
 
     private fun initData() {
         if (viewModel.isInit) {
             viewModel.isInit = false
             viewModel.isTop?.let { feedReplyAdapter.setHaveTop(it, viewModel.topReplyId) }
-            binding.titleProfile.visibility = View.GONE
-            refresh()
-        }/* else {
-            if (getScrollYDistance() >= 50.dp) {
-                // showTitleProfile()
-            } else {
-                binding.titleProfile.visibility = View.GONE
-            }
-        }*/
+            refreshData()
+        }
     }
 
-    private fun refresh() {
-        viewModel.firstVisibleItemPosition = 0
+    private fun refreshData() {
+        firstVisibleItemPosition = 0
         viewModel.lastVisibleItemPosition = 0
         viewModel.firstItem = null
         viewModel.lastItem = null
@@ -345,19 +332,6 @@ class FeedFragment : BaseFragment<FragmentFeedBinding>(), IOnPublishClickListene
         viewModel.fetchFeedReply()
     }
 
-
-    /*private fun getScrollYDistance(): Int {
-        val position = mLayoutManager.findFirstVisibleItemPosition()
-        val firstVisibleChildView = mLayoutManager.findViewByPosition(position)
-        var itemHeight = 0
-        var top = 0
-        firstVisibleChildView?.let {
-            itemHeight = firstVisibleChildView.height
-            top = firstVisibleChildView.top
-        }
-        return position * itemHeight - top
-    }*/
-
     @SuppressLint("SetTextI18n")
     private fun initView() {
         feedDataAdapter = FeedDataAdapter(
@@ -365,11 +339,18 @@ class FeedFragment : BaseFragment<FragmentFeedBinding>(), IOnPublishClickListene
             viewModel.feedDataList,
             viewModel.articleList
         )
-        feedReplyAdapter = FeedReplyAdapter(viewModel.repository, ItemClickListener())
+        feedReplyAdapter = FeedReplyAdapter(viewModel.blackListRepo, ItemClickListener())
         feedFixAdapter =
             FeedFixAdapter(viewModel.replyCount.toString(), RefreshReplyListener())
 
-        binding.listener = RefreshReplyListener()
+        binding.apply {
+            refreshListener = RefreshReplyListener()
+            listener = ItemClickListener()
+            username = viewModel.funame
+            avatarUrl = viewModel.avatar
+            dateline = viewModel.dateLine
+            deviceTitle = viewModel.device
+        }
         footerAdapter = FooterAdapter(ReloadListener())
 
         binding.replyCount.text = "共 ${viewModel.replyCount} 回复"
@@ -385,30 +366,29 @@ class FeedFragment : BaseFragment<FragmentFeedBinding>(), IOnPublishClickListene
                     footerAdapter
                 )
             layoutManager =
-                if (resources.configuration.orientation == Configuration.ORIENTATION_PORTRAIT) {
-                    binding.tabLayout.visibility = View.VISIBLE
+                if (isPortrait) {
+                    binding.tabLayout.isVisible = true
                     mLayoutManager = LinearLayoutManager(requireContext())
                     mLayoutManager
                 } else {
-                    binding.tabLayout.visibility = View.GONE
+                    binding.tabLayout.isVisible = false
                     sLayoutManager =
                         StaggeredGridLayoutManager(2, StaggeredGridLayoutManager.VERTICAL)
                     sLayoutManager
                 }
-            if (viewModel.isViewReply == true) {
+            if (viewModel.isViewReply) {
                 viewModel.isViewReply = false
-                if (resources.configuration.orientation == Configuration.ORIENTATION_PORTRAIT) {
-                    footerAdapter.setLoadState(FooterAdapter.LoadState.LOADING_REPLY, null)
-                    mLayoutManager.scrollToPositionWithOffset(viewModel.itemCount, 0)
-                    viewModel.firstVisibleItemPosition = viewModel.itemCount
+                if (isPortrait) {
+                    footerAdapter.setLoadState(FooterState.LoadingReply)
+                    scrollToPosition(viewModel.itemCount)
                 } else {
-                    footerAdapter.setLoadState(FooterAdapter.LoadState.LOADING, null)
+                    footerAdapter.setLoadState(FooterState.Loading)
                 }
             } else {
-                footerAdapter.setLoadState(FooterAdapter.LoadState.LOADING, null)
+                footerAdapter.setLoadState(FooterState.Loading)
             }
             if (itemDecorationCount == 0)
-                if (resources.configuration.orientation == Configuration.ORIENTATION_PORTRAIT)
+                if (isPortrait)
                     addItemDecoration(
                         StickyItemDecorator(requireContext(), 1, viewModel.itemCount,
                             object : StickyItemDecorator.SortShowListener {
@@ -419,7 +399,7 @@ class FeedFragment : BaseFragment<FragmentFeedBinding>(), IOnPublishClickListene
                             })
                     )
                 else
-                    addItemDecoration(StaggerItemDecoration(10.dp, viewModel.itemCount))
+                    addItemDecoration(StaggerItemDecoration(10.dp))
         }
     }
 
@@ -432,38 +412,36 @@ class FeedFragment : BaseFragment<FragmentFeedBinding>(), IOnPublishClickListene
             }
             setOnClickListener {
                 binding.recyclerView.stopScroll()
-                binding.titleProfile.visibility = View.GONE
                 scrollToPosition(0)
-                viewModel.firstVisibleItemPosition = 0
             }
             inflateMenu(R.menu.feed_menu)
+
             menu.findItem(R.id.showReply).isVisible =
                 resources.configuration.orientation != Configuration.ORIENTATION_LANDSCAPE
             menu.findItem(R.id.report).isVisible = PrefManager.isLogin
+            menu.findItem(R.id.showQuestion).isVisible = viewModel.feedType == "answer"
+
             val favorite = menu.findItem(R.id.favorite)
-            lifecycleScope.launch(Dispatchers.IO) {
-                if (viewModel.isFavorite(viewModel.id.toString())) {
-                    withContext(Dispatchers.Main) {
-                        favorite.title = "取消收藏"
-                    }
-                } else {
-                    withContext(Dispatchers.Main) {
-                        favorite.title = "收藏"
-                    }
-                }
+            lifecycleScope.launch(Dispatchers.Main) {
+                val isFavorite = viewModel.isFavorite(viewModel.id)
+                favorite.title = if (isFavorite) "取消收藏"
+                else "收藏"
             }
             setOnMenuItemClickListener {
                 when (it.itemId) {
+                    R.id.showQuestion -> {
+                        viewModel.feedDataList?.getOrNull(0)?.fid?.let {
+                            IntentUtil.startActivity<FeedActivity>(requireContext()) {
+                                putExtra("id", it)
+                            }
+                        }
+                    }
+
                     R.id.showReply -> {
                         binding.recyclerView.stopScroll()
-                        if (viewModel.firstVisibleItemPosition <= viewModel.itemCount - 1) {
+                        if (firstVisibleItemPosition <= viewModel.itemCount - 1)
                             mLayoutManager.scrollToPositionWithOffset(viewModel.itemCount, 0)
-                            viewModel.firstVisibleItemPosition = viewModel.itemCount
-                        } else {
-                            binding.titleProfile.visibility = View.GONE
-                            mLayoutManager.scrollToPositionWithOffset(0, 0)
-                            viewModel.firstVisibleItemPosition = 0
-                        }
+                        else scrollToPosition(0)
                     }
 
                     R.id.block -> {
@@ -502,22 +480,21 @@ class FeedFragment : BaseFragment<FragmentFeedBinding>(), IOnPublishClickListene
 
 
                     R.id.favorite -> {
-                        lifecycleScope.launch(Dispatchers.IO) {
-                            if (viewModel.isFavorite(viewModel.id.toString())) {
-                                viewModel.delete(viewModel.id.toString())
-                                withContext(Dispatchers.Main) {
-                                    favorite.title = "收藏"
-                                    ToastUtil.toast(requireContext(), "已取消收藏")
-                                }
+                        lifecycleScope.launch(Dispatchers.Main) {
+                            val isFavorite = favorite.title == "取消收藏"
+                            if (isFavorite) {
+                                viewModel.delete(viewModel.id)
+                                favorite.title = "收藏"
+                                ToastUtil.toast(requireContext(), "已取消收藏")
                             } else {
                                 try {
                                     val fav = FeedEntity(
-                                        viewModel.id.toString(),
+                                        viewModel.id,
                                         viewModel.uid.toString(),
                                         viewModel.funame.toString(),
                                         viewModel.avatar.toString(),
                                         viewModel.device.toString(),
-                                        if (viewModel.feedType == "feedArticle")
+                                        if (!viewModel.articleList.isNullOrEmpty())
                                             viewModel.articleMsg.toString()
                                         else {
                                             with(viewModel.feedDataList?.getOrNull(0)?.message.toString()) {
@@ -525,22 +502,20 @@ class FeedFragment : BaseFragment<FragmentFeedBinding>(), IOnPublishClickListene
                                                 else this
                                             }
                                         }, // 还未加载完会空指针
-                                        if (viewModel.feedType == "feedArticle") viewModel.articleDateLine.toString()
+                                        if (!viewModel.articleList.isNullOrEmpty()) viewModel.articleDateLine.toString()
                                         else viewModel.feedDataList?.getOrNull(0)?.dateline.toString()
                                     )
                                     viewModel.insert(fav)
-                                    withContext(Dispatchers.Main) {
-                                        favorite.title = "取消收藏"
-                                        ToastUtil.toast(requireContext(), "已收藏")
-                                    }
+                                    favorite.title = "取消收藏"
+                                    ToastUtil.toast(requireContext(), "已收藏")
                                 } catch (e: Exception) {
                                     e.printStackTrace()
                                     ToastUtil.toast(requireContext(), "请稍后再试")
                                 }
                             }
-
                         }
                     }
+
                 }
                 return@setOnMenuItemClickListener true
             }
@@ -565,7 +540,7 @@ class FeedFragment : BaseFragment<FragmentFeedBinding>(), IOnPublishClickListene
             else
                 feedReplyAdapter.setHaveTop(false, null)
             binding.recyclerView.stopScroll()
-            if (viewModel.firstVisibleItemPosition > 1)
+            if (firstVisibleItemPosition > 1)
                 viewModel.isViewReply = true
             viewModel.fromFeedAuthor = if (listType == "") 1
             else 0
@@ -590,8 +565,8 @@ class FeedFragment : BaseFragment<FragmentFeedBinding>(), IOnPublishClickListene
             val paddingBottom: Int = decorView?.paddingBottom ?: 0
             val paddingLeft: Int = decorView?.paddingLeft ?: 0
             val paddingRight: Int = decorView?.paddingRight ?: 0
-            val width = 68.dp + paddingLeft + paddingRight
-            val height = 68.dp + paddingTop + paddingBottom
+            val width = 80.dp + paddingLeft + paddingRight
+            val height = 80.dp + paddingTop + paddingBottom
             dialog?.window?.setLayout(width, height)
             viewModel.fetchFeedReply()
         }
@@ -639,13 +614,11 @@ class FeedFragment : BaseFragment<FragmentFeedBinding>(), IOnPublishClickListene
                 )
         }
 
-        override fun onFollowUser(uid: String, followAuthor: Int, position: Int) {
-            if (PrefManager.isLogin)
-                if (followAuthor == 1) {
-                    viewModel.onPostFollowUnFollow("/v6/user/unfollow", uid, followAuthor)
-                } else {
-                    viewModel.onPostFollowUnFollow("/v6/user/follow", uid, followAuthor)
-                }
+        override fun onFollowUser(uid: String, followAuthor: Int) {
+            if (PrefManager.isLogin) {
+                val url = if (followAuthor == 1) "/v6/user/unfollow" else "/v6/user/follow"
+                viewModel.onFollowUnFollow(url, uid, followAuthor)
+            }
         }
 
         override fun onExpand(
@@ -681,10 +654,13 @@ class FeedFragment : BaseFragment<FragmentFeedBinding>(), IOnPublishClickListene
             position: Int,
             rPosition: Int?
         ) {
+            if (isShowReply) {
+                isShowReply = false
+                return
+            }
             if (PrefManager.isLogin) {
                 if (PrefManager.SZLMID == "") {
-                    Toast.makeText(requireContext(), SZLM_ID, Toast.LENGTH_SHORT)
-                        .show()
+                    Toast.makeText(requireContext(), SZLM_ID, Toast.LENGTH_SHORT).show()
                 } else {
                     viewModel.rid = id
                     viewModel.ruid = uid
@@ -697,18 +673,18 @@ class FeedFragment : BaseFragment<FragmentFeedBinding>(), IOnPublishClickListene
             }
         }
 
-        override fun onLikeClick(type: String, id: String, position: Int, likeData: Like) {
+        override fun onLikeClick(type: String, id: String, isLike: Int) {
             if (PrefManager.isLogin)
                 if (PrefManager.SZLMID.isEmpty())
                     Toast.makeText(requireContext(), SZLM_ID, Toast.LENGTH_SHORT).show()
+                else if (type == "feed")
+                    viewModel.onLikeFeed(id, isLike)
                 else
-                    if (type == "feed")
-                        viewModel.onPostLikeFeed(id, likeData)
-                    else
-                        viewModel.onPostLikeReply(id, position, likeData)
+                    viewModel.onLikeReply(id, isLike)
         }
 
         override fun showTotalReply(id: String, uid: String, position: Int, rPosition: Int?) {
+            isShowReply = true
             val mBottomSheetDialogFragment =
                 Reply2ReplyBottomSheetDialog.newInstance(
                     position,
@@ -789,6 +765,14 @@ class FeedFragment : BaseFragment<FragmentFeedBinding>(), IOnPublishClickListene
             return true
         }
     }
+
+    private val scrollYDistance: Int
+        get() {
+            val firstVisibleChildView =
+                if (isPortrait) mLayoutManager.findViewByPosition(firstVisibleItemPosition)
+                else sLayoutManager.findViewByPosition(firstVisibleItemPosition)
+            return abs(firstVisibleChildView?.top ?: 0)
+        }
 
     override fun onDestroy() {
         bottomSheetDialog?.dismiss()

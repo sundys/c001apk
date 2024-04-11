@@ -13,8 +13,11 @@ import androidx.recyclerview.widget.StaggeredGridLayoutManager
 import com.absinthe.libraries.utils.extensions.dp
 import com.example.c001apk.R
 import com.example.c001apk.adapter.FooterAdapter
+import com.example.c001apk.adapter.FooterState
 import com.example.c001apk.adapter.HeaderAdapter
 import com.example.c001apk.adapter.ItemListener
+import com.example.c001apk.adapter.LoadingState
+import com.example.c001apk.adapter.PlaceHolderAdapter
 import com.example.c001apk.databinding.FragmentMessageBinding
 import com.example.c001apk.ui.base.BaseFragment
 import com.example.c001apk.ui.login.LoginActivity
@@ -25,13 +28,13 @@ import com.example.c001apk.util.CookieUtil.atcommentme
 import com.example.c001apk.util.CookieUtil.atme
 import com.example.c001apk.util.CookieUtil.contacts_follow
 import com.example.c001apk.util.CookieUtil.feedlike
-import com.example.c001apk.util.CookieUtil.message
 import com.example.c001apk.util.Event
 import com.example.c001apk.util.ImageUtil
 import com.example.c001apk.util.IntentUtil
 import com.example.c001apk.util.PrefManager
+import com.example.c001apk.util.setSpaceFooterView
 import com.example.c001apk.view.LinearItemDecoration
-import com.example.c001apk.view.StaggerMessItemDecoration
+import com.example.c001apk.view.MessStaggerItemDecoration
 import com.google.android.material.color.MaterialColors
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import dagger.hilt.android.AndroidEntryPoint
@@ -48,87 +51,85 @@ class MessageFragment : BaseFragment<FragmentMessageBinding>() {
     private lateinit var footerAdapter: FooterAdapter
     private lateinit var mLayoutManager: LinearLayoutManager
     private lateinit var sLayoutManager: StaggeredGridLayoutManager
+    private val placeHolderAdapter = PlaceHolderAdapter()
+    private val isPortrait by lazy { resources.configuration.orientation == Configuration.ORIENTATION_PORTRAIT }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
-        binding.clickToLogin.setOnClickListener {
-            IntentUtil.startActivity<LoginActivity>(requireContext()) {
-            }
-        }
-
+        initLogin()
         initView()
         initScroll()
         initRefresh()
-        initMenu()
         initObserve()
 
+    }
+
+    private fun initLogin() {
+        binding.isLogin = PrefManager.isLogin
         if (PrefManager.isLogin) {
-            binding.clickToLogin.visibility = View.GONE
-            binding.avatar.visibility = View.VISIBLE
-            binding.name.visibility = View.VISIBLE
-            binding.levelLayout.visibility = View.VISIBLE
-            binding.progress.visibility = View.VISIBLE
-            showProfile()
+            viewModel.messCountList.value = Event(Unit)
             if (viewModel.isInit) {
                 viewModel.isInit = false
+                showProfile()
                 getData()
-            } else {
-                if (viewModel.countList.isNotEmpty())
-                    messageFirstAdapter.setFFFList(viewModel.countList)
-                if (viewModel.messCountList.isNotEmpty())
-                    messageThirdAdapter.setBadgeList(viewModel.messCountList)
             }
-            viewModel.messCountList.apply {
-                add(atme)
-                add(atcommentme)
-                add(feedlike)
-                add(contacts_follow)
-                add(message)
-            }
+            initMenu()
         } else {
-            binding.clickToLogin.visibility = View.VISIBLE
-            binding.avatar.visibility = View.INVISIBLE
-            binding.name.visibility = View.INVISIBLE
-            binding.levelLayout.visibility = View.INVISIBLE
-            binding.progress.visibility = View.INVISIBLE
+            binding.clickToLogin.setOnClickListener {
+                IntentUtil.startActivity<LoginActivity>(requireContext()) {}
+            }
         }
     }
 
     private fun initObserve() {
+        viewModel.countList.observe(viewLifecycleOwner) {
+            messageFirstAdapter.setFFFList(it)
+        }
+
+        viewModel.messCountList.observe(viewLifecycleOwner) {
+            messageThirdAdapter.setBadgeList(
+                listOf(
+                    atme ?: 0,
+                    atcommentme ?: 0,
+                    feedlike ?: 0,
+                    contacts_follow ?: 0,
+                )
+            )
+        }
+
         viewModel.toastText.observe(viewLifecycleOwner) { event ->
             event.getContentIfNotHandledOrReturnNull()?.let {
                 Toast.makeText(requireContext(), it, Toast.LENGTH_SHORT).show()
             }
         }
 
-        viewModel.doWhat.observe(viewLifecycleOwner) { event ->
-            event.getContentIfNotHandledOrReturnNull()?.let {
-                when (it) {
-                    "showProfile" -> showProfile()
+        viewModel.loadingState.observe(viewLifecycleOwner) {
+            when (it) {
+                LoadingState.Loading -> {}
+                LoadingState.LoadingDone -> {
+                    showProfile()
+                }
 
-                    "isRefreshing" -> binding.swipeRefresh.isRefreshing = false
-
-                    "countList" -> messageFirstAdapter.setFFFList(viewModel.countList)
-
-                    "messCountList" -> messageThirdAdapter.setBadgeList(viewModel.messCountList)
+                is LoadingState.LoadingError -> {}
+                is LoadingState.LoadingFailed -> {
+                    binding.swipeRefresh.isRefreshing = false
                 }
             }
         }
 
-        viewModel.changeState.observe(viewLifecycleOwner) {
-            footerAdapter.setLoadState(it.first, it.second)
-            footerAdapter.notifyItemChanged(0)
-            if (it.first != FooterAdapter.LoadState.LOADING) {
+        viewModel.footerState.observe(viewLifecycleOwner) {
+            footerAdapter.setLoadState(it)
+            if (it !is FooterState.Loading) {
                 binding.swipeRefresh.isRefreshing = false
-                viewModel.isLoadMore = false
-                viewModel.isRefreshing = false
             }
         }
 
         viewModel.messageData.observe(viewLifecycleOwner) {
             viewModel.listSize = it.size
             mAdapter.submitList(it)
+            if (binding.vfContainer.displayedChild != it.size)
+                binding.vfContainer.displayedChild = it.size
         }
     }
 
@@ -137,27 +138,15 @@ class MessageFragment : BaseFragment<FragmentMessageBinding>() {
             override fun onScrollStateChanged(recyclerView: RecyclerView, newState: Int) {
                 super.onScrollStateChanged(recyclerView, newState)
                 if (newState == RecyclerView.SCROLL_STATE_IDLE) {
-
-                    if (viewModel.listSize != -1 && !viewModel.isEnd && isAdded) {
-                        if (resources.configuration.orientation == Configuration.ORIENTATION_PORTRAIT) {
-                            viewModel.lastVisibleItemPosition =
-                                mLayoutManager.findLastVisibleItemPosition()
-                        } else {
-                            val positions = sLayoutManager.findLastVisibleItemPositions(null)
-                            viewModel.lastVisibleItemPosition = positions[0]
-                            positions.forEach { pos ->
-                                if (pos > viewModel.lastVisibleItemPosition) {
-                                    viewModel.lastVisibleItemPosition = pos
-                                }
-                            }
-                        }
-                    }
+                    viewModel.lastVisibleItemPosition = if (isPortrait)
+                        mLayoutManager.findLastVisibleItemPosition()
+                    else
+                        sLayoutManager.findLastVisibleItemPositions(null).max()
 
                     if (viewModel.lastVisibleItemPosition == viewModel.listSize + 7
                         && !viewModel.isEnd && !viewModel.isRefreshing && !viewModel.isLoadMore
-                        && !binding.swipeRefresh.isShown
+                        && !binding.swipeRefresh.isRefreshing
                     ) {
-                        viewModel.page++
                         loadMore()
                     }
                 }
@@ -165,12 +154,10 @@ class MessageFragment : BaseFragment<FragmentMessageBinding>() {
 
             override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
                 super.onScrolled(recyclerView, dx, dy)
-                if (viewModel.listSize != -1) {
-                    if (dy > 0) {
-                        (activity as? INavViewContainer)?.hideNavigationView()
-                    } else if (dy < 0) {
-                        (activity as? INavViewContainer)?.showNavigationView()
-                    }
+                if (dy > 0) {
+                    (activity as? INavViewContainer)?.hideNavigationView()
+                } else if (dy < 0) {
+                    (activity as? INavViewContainer)?.showNavigationView()
                 }
             }
         })
@@ -183,7 +170,6 @@ class MessageFragment : BaseFragment<FragmentMessageBinding>() {
 
     private fun initView() {
         mAdapter = MessageAdapter(ItemClickListener())
-        messageThirdAdapter.setBadgeList(listOf(atme, atcommentme, feedlike, contacts_follow))
         footerAdapter = FooterAdapter(ReloadListener())
         binding.recyclerView.apply {
             adapter = ConcatAdapter(
@@ -195,7 +181,7 @@ class MessageFragment : BaseFragment<FragmentMessageBinding>() {
                 footerAdapter
             )
             layoutManager =
-                if (resources.configuration.orientation == Configuration.ORIENTATION_PORTRAIT) {
+                if (isPortrait) {
                     mLayoutManager = LinearLayoutManager(requireContext())
                     mLayoutManager
                 } else {
@@ -203,50 +189,48 @@ class MessageFragment : BaseFragment<FragmentMessageBinding>() {
                         StaggeredGridLayoutManager(2, StaggeredGridLayoutManager.VERTICAL)
                     sLayoutManager
                 }
-            if (resources.configuration.orientation == Configuration.ORIENTATION_PORTRAIT)
+            if (isPortrait)
                 addItemDecoration(LinearItemDecoration(10.dp))
             else
-                addItemDecoration(StaggerMessItemDecoration(10.dp))
+                addItemDecoration(MessStaggerItemDecoration(10.dp))
+        }
+        binding.vfContainer.setOnDisplayedChildChangedListener {
+            binding.recyclerView.setSpaceFooterView(placeHolderAdapter)
         }
     }
 
     private fun initRefresh() {
-        binding.swipeRefresh.setColorSchemeColors(
-            MaterialColors.getColor(
-                requireContext(),
-                com.google.android.material.R.attr.colorPrimary,
-                0
+        binding.swipeRefresh.apply {
+            setColorSchemeColors(
+                MaterialColors.getColor(
+                    requireContext(),
+                    com.google.android.material.R.attr.colorPrimary,
+                    0
+                )
             )
-        )
-        binding.swipeRefresh.setOnRefreshListener {
-            getData()
-            if (PrefManager.isLogin) {
-                viewModel.lastItem = null
-                viewModel.messCountList.clear()
-                viewModel.countList.clear()
-                viewModel.fetchCheckLoginInfo()
+            setOnRefreshListener {
+                if (PrefManager.isLogin)
+                    getData()
+                else
+                    binding.swipeRefresh.isRefreshing = false
             }
         }
     }
 
     private fun getData() {
-        if (PrefManager.isLogin) {
-            binding.swipeRefresh.isRefreshing = true
-            viewModel.uid = PrefManager.uid
-            viewModel.page = 1
-            viewModel.isEnd = false
-            viewModel.isRefreshing = true
-            viewModel.isLoadMore = false
-            viewModel.fetchProfile()
-        } else
-            binding.swipeRefresh.isRefreshing = false
+        viewModel.lastItem = null
+        viewModel.page = 1
+        viewModel.isEnd = false
+        viewModel.isRefreshing = true
+        viewModel.isLoadMore = false
+        viewModel.fetchCheckLoginInfo()
+        viewModel.fetchProfile()
     }
 
 
     private fun initMenu() {
         binding.toolBar.apply {
             inflateMenu(R.menu.message_menu)
-            menu.findItem(R.id.logout).isVisible = PrefManager.isLogin
             setOnMenuItemClickListener {
                 when (it.itemId) {
                     R.id.logout -> {
@@ -254,10 +238,13 @@ class MessageFragment : BaseFragment<FragmentMessageBinding>() {
                             setTitle(R.string.logoutTitle)
                             setNegativeButton(android.R.string.cancel, null)
                             setPositiveButton(android.R.string.ok) { _, _ ->
-                                viewModel.countList.clear()
-                                viewModel.messCountList.clear()
-                                viewModel.doWhat.postValue(Event("countList"))
-                                viewModel.doWhat.postValue(Event("messCountList"))
+                                viewModel.countList.value = emptyList()
+                                atme = null
+                                atcommentme = null
+                                feedlike = null
+                                contacts_follow = null
+                                viewModel.messCountList.value = Event(Unit)
+                                viewModel.footerState.value = FooterState.LoadingDone
                                 viewModel.messageData.postValue(emptyList())
                                 viewModel.isInit = true
                                 viewModel.isEnd = false
@@ -282,12 +269,8 @@ class MessageFragment : BaseFragment<FragmentMessageBinding>() {
         binding.name.text = URLDecoder.decode(PrefManager.username, "UTF-8")
         binding.level.text = "Lv.${PrefManager.level}"
         binding.exp.text = "${PrefManager.experience}/${PrefManager.nextLevelExperience}"
-        binding.progress.max =
-            if (PrefManager.nextLevelExperience != "" && PrefManager.nextLevelExperience != "null") PrefManager.nextLevelExperience.toInt()
-            else -1
-        binding.progress.progress =
-            if (PrefManager.experience != "" && PrefManager.experience != "null") PrefManager.experience.toInt()
-            else -1
+        binding.progress.max = PrefManager.nextLevelExperience.toIntOrNull() ?: -1
+        binding.progress.progress = PrefManager.experience.toIntOrNull() ?: -1
         if (PrefManager.userAvatar.isNotEmpty())
             ImageUtil.showIMG(binding.avatar, PrefManager.userAvatar)
     }
@@ -325,8 +308,13 @@ class MessageFragment : BaseFragment<FragmentMessageBinding>() {
             )
             if (!uid.isNullOrEmpty() && PrefManager.isRecordHistory)
                 viewModel.saveHistory(
-                    id.toString(), uid.toString(), username.toString(), userAvatar.toString(),
-                    deviceTitle.toString(), message.toString(), dateline.toString()
+                    id.toString(),
+                    uid.toString(),
+                    username.toString(),
+                    userAvatar.toString(),
+                    deviceTitle.toString(),
+                    message.toString(),
+                    dateline.toString()
                 )
         }
 
@@ -349,6 +337,5 @@ class MessageFragment : BaseFragment<FragmentMessageBinding>() {
             return true
         }
     }
-
 
 }

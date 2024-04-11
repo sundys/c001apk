@@ -1,8 +1,10 @@
 package com.example.c001apk.ui.feed
 
+import android.content.res.Configuration
 import android.view.LayoutInflater
 import android.view.ViewGroup
 import androidx.recyclerview.widget.RecyclerView
+import androidx.recyclerview.widget.StaggeredGridLayoutManager
 import com.example.c001apk.BR
 import com.example.c001apk.adapter.ItemListener
 import com.example.c001apk.databinding.ItemFeedArticleImageBinding
@@ -22,16 +24,26 @@ class FeedDataAdapter(
     class FeedViewHolder(val binding: ItemFeedContentBinding, val listener: ItemListener) :
         RecyclerView.ViewHolder(binding.root) {
         fun bind(data: HomeFeedResponse.Data?) {
+            with(itemView.layoutParams) {
+                if (itemView.context.resources.configuration.orientation == Configuration.ORIENTATION_PORTRAIT
+                    && this is StaggeredGridLayoutManager.LayoutParams
+                )
+                    isFullSpan = true
+            }
+
             binding.setVariable(BR.data, data)
             binding.setVariable(BR.listener, listener)
-            binding.likeData = Like().also {
-                it.apply {
-                    data?.userAction?.like?.let { like ->
-                        isLike.set(like)
-                    }
-                    likeNum.set(data?.likenum)
-                }
-            }
+            binding.setVariable(
+                BR.likeData,
+                Like(
+                    data?.likenum ?: "0",
+                    data?.userAction?.like ?: 0
+                )
+            )
+            binding.setVariable(
+                BR.followAuthor,
+                data?.userAction?.followAuthor ?: 0
+            )
             binding.executePendingBindings()
         }
     }
@@ -42,7 +54,7 @@ class FeedDataAdapter(
             binding.setVariable(BR.data, data)
             binding.setVariable(BR.listener, listener)
             binding.textView.paint.isFakeBoldText =
-                (bindingAdapterPosition == 0 || bindingAdapterPosition == 1) && data?.title == "true"
+                (bindingAdapterPosition in listOf(0, 1)) && data?.title == "true"
             binding.executePendingBindings()
         }
     }
@@ -118,6 +130,33 @@ class FeedDataAdapter(
             is TextViewHolder -> holder.bind(articleList?.getOrNull(position))
             is ImageViewHolder -> holder.bind(articleList?.getOrNull(position))
             is ShareUrlViewHolder -> holder.bind(articleList?.getOrNull(position))
+        }
+    }
+
+    override fun onBindViewHolder(
+        holder: RecyclerView.ViewHolder,
+        position: Int,
+        payloads: MutableList<Any>
+    ) {
+        if (payloads.isEmpty()) {
+            onBindViewHolder(holder, position)
+        } else {
+            if (payloads[0] == true) {
+                with(holder as FeedViewHolder) {
+                    binding.setVariable(
+                        BR.likeData,
+                        Like(
+                            feedDataList?.getOrNull(0)?.likenum ?: "0",
+                            feedDataList?.getOrNull(0)?.userAction?.like ?: 0
+                        )
+                    )
+                    binding.setVariable(
+                        BR.followAuthor,
+                        feedDataList?.getOrNull(0)?.userAction?.followAuthor ?: 0
+                    )
+                    binding.executePendingBindings()
+                }
+            }
         }
     }
 

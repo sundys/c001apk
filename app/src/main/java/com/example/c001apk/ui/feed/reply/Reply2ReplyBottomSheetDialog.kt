@@ -12,6 +12,7 @@ import android.widget.Toast
 import androidx.core.graphics.ColorUtils
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.core.view.isVisible
 import androidx.fragment.app.viewModels
 import androidx.recyclerview.widget.ConcatAdapter
 import androidx.recyclerview.widget.LinearLayoutManager
@@ -21,15 +22,15 @@ import com.absinthe.libraries.utils.extensions.dp
 import com.absinthe.libraries.utils.utils.UiUtils
 import com.example.c001apk.R
 import com.example.c001apk.adapter.FooterAdapter
+import com.example.c001apk.adapter.FooterState
 import com.example.c001apk.adapter.ItemListener
 import com.example.c001apk.constant.Constants
 import com.example.c001apk.databinding.DialogReplyToReplyBottomSheetBinding
 import com.example.c001apk.databinding.ItemCaptchaBinding
-import com.example.c001apk.logic.model.Like
 import com.example.c001apk.logic.model.TotalReplyResponse
 import com.example.c001apk.util.PrefManager
 import com.example.c001apk.view.ReplyItemDecoration
-import com.example.c001apk.view.StaggerItemDecoration
+import com.example.c001apk.view.ReplyStaggerItemDecoration
 import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
@@ -48,6 +49,7 @@ class Reply2ReplyBottomSheetDialog : BottomSheetDialogFragment(), IOnPublishClic
     private lateinit var bottomSheetDialog: ReplyBottomSheetDialog
     var oriReply: ArrayList<TotalReplyResponse.Data> = ArrayList()
     private lateinit var sLayoutManager: StaggeredGridLayoutManager
+    private val isPortrait by lazy { resources.configuration.orientation == Configuration.ORIENTATION_PORTRAIT }
 
     companion object {
         fun newInstance(
@@ -57,10 +59,10 @@ class Reply2ReplyBottomSheetDialog : BottomSheetDialogFragment(), IOnPublishClic
             id: String
         ): Reply2ReplyBottomSheetDialog {
             val args = Bundle()
-            args.putString("FUID", fuid)
-            args.putString("UID", uid)
-            args.putString("ID", id)
-            args.putInt("POSITION", position)
+            args.putString("fuid", fuid)
+            args.putString("uid", uid)
+            args.putString("id", id)
+            args.putInt("position", position)
             val fragment = Reply2ReplyBottomSheetDialog()
             fragment.arguments = args
             return fragment
@@ -69,10 +71,10 @@ class Reply2ReplyBottomSheetDialog : BottomSheetDialogFragment(), IOnPublishClic
 
     private fun setData() {
         arguments?.let {
-            viewModel.id = it.getString("ID", "")
-            viewModel.fuid = it.getString("FUID", "")
-            viewModel.uid = it.getString("UID", "")
-            viewModel.position = it.getInt("POSITION")
+            viewModel.id = it.getString("id", "")
+            viewModel.fuid = it.getString("fuid", "")
+            viewModel.uid = it.getString("uid", "")
+            viewModel.position = it.getInt("position")
             viewModel.oriReply = oriReply
         }
     }
@@ -183,14 +185,11 @@ class Reply2ReplyBottomSheetDialog : BottomSheetDialogFragment(), IOnPublishClic
             }
         }
 
-        viewModel.changeState.observe(viewLifecycleOwner) {
-            footerAdapter.setLoadState(it.first, it.second)
-            footerAdapter.notifyItemChanged(0)
-            if (it.first != FooterAdapter.LoadState.LOADING) {
+        viewModel.footerState.observe(viewLifecycleOwner) {
+            footerAdapter.setLoadState(it)
+            if (it !is FooterState.Loading) {
                 binding.indicator.parent.isIndeterminate = false
-                binding.indicator.parent.visibility = View.GONE
-                viewModel.isLoadMore = false
-                viewModel.isRefreshing = false
+                binding.indicator.parent.isVisible = false
             }
         }
 
@@ -208,35 +207,19 @@ class Reply2ReplyBottomSheetDialog : BottomSheetDialogFragment(), IOnPublishClic
         }
     }
 
-    private fun showReplyErrorMessage() {
-        binding.replyErrorMessage.visibility = View.VISIBLE
-        binding.replyErrorMessage.text = viewModel.errorMessage
-    }
-
     private fun initScroll() {
         binding.recyclerView.addOnScrollListener(object : RecyclerView.OnScrollListener() {
             override fun onScrollStateChanged(recyclerView: RecyclerView, newState: Int) {
                 super.onScrollStateChanged(recyclerView, newState)
                 if (newState == RecyclerView.SCROLL_STATE_IDLE) {
-
-                    if (viewModel.listSize != -1 && !viewModel.isEnd && isAdded)
-                        if (resources.configuration.orientation == Configuration.ORIENTATION_PORTRAIT) {
-                            viewModel.lastVisibleItemPosition =
-                                mLayoutManager.findLastVisibleItemPosition()
-                        } else {
-                            val positions = sLayoutManager.findLastVisibleItemPositions(null)
-                            viewModel.lastVisibleItemPosition = positions[0]
-                            positions.forEach { pos ->
-                                if (pos > viewModel.lastVisibleItemPosition) {
-                                    viewModel.lastVisibleItemPosition = pos
-                                }
-                            }
-                        }
+                    viewModel.lastVisibleItemPosition = if (isPortrait)
+                        mLayoutManager.findLastVisibleItemPosition()
+                    else
+                        sLayoutManager.findLastVisibleItemPositions(null).max()
 
                     if (viewModel.lastVisibleItemPosition == viewModel.listSize
                         && !viewModel.isEnd && !viewModel.isRefreshing && !viewModel.isLoadMore
                     ) {
-                        viewModel.page++
                         loadMore()
                     }
                 }
@@ -251,8 +234,8 @@ class Reply2ReplyBottomSheetDialog : BottomSheetDialogFragment(), IOnPublishClic
 
     private fun initData() {
         if (viewModel.listSize == -1) {
-            binding.indicator.parent.visibility = View.VISIBLE
             binding.indicator.parent.isIndeterminate = true
+            binding.indicator.parent.isVisible = true
             viewModel.isEnd = false
             viewModel.isLoadMore = false
             viewModel.fetchReplyTotal()
@@ -270,7 +253,7 @@ class Reply2ReplyBottomSheetDialog : BottomSheetDialogFragment(), IOnPublishClic
         binding.recyclerView.apply {
             adapter = ConcatAdapter()
             layoutManager =
-                if (resources.configuration.orientation == Configuration.ORIENTATION_PORTRAIT) {
+                if (isPortrait) {
                     mLayoutManager = LinearLayoutManager(requireContext())
                     mLayoutManager
                 } else {
@@ -278,10 +261,10 @@ class Reply2ReplyBottomSheetDialog : BottomSheetDialogFragment(), IOnPublishClic
                         StaggeredGridLayoutManager(2, StaggeredGridLayoutManager.VERTICAL)
                     sLayoutManager
                 }
-            if (resources.configuration.orientation == Configuration.ORIENTATION_PORTRAIT)
+            if (isPortrait)
                 addItemDecoration(ReplyItemDecoration(requireContext(), 1))
             else
-                addItemDecoration(StaggerItemDecoration(10.dp))
+                addItemDecoration(ReplyStaggerItemDecoration(10.dp))
         }
     }
 
@@ -352,12 +335,12 @@ class Reply2ReplyBottomSheetDialog : BottomSheetDialogFragment(), IOnPublishClic
                 )
         }
 
-        override fun onLikeClick(type: String, id: String, position: Int, likeData: Like) {
+        override fun onLikeClick(type: String, id: String, isLike: Int) {
             if (PrefManager.isLogin)
                 if (PrefManager.SZLMID.isEmpty())
                     Toast.makeText(requireContext(), Constants.SZLM_ID, Toast.LENGTH_SHORT).show()
                 else
-                    viewModel.onPostLikeReply(id, position, likeData)
+                    viewModel.onPostLikeReply(id, isLike)
         }
 
         override fun onReply(

@@ -5,27 +5,24 @@ import android.graphics.BitmapFactory
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.c001apk.adapter.FooterAdapter
+import com.example.c001apk.adapter.FooterState
+import com.example.c001apk.constant.Constants.LOADING_END
 import com.example.c001apk.constant.Constants.LOADING_FAILED
-import com.example.c001apk.logic.model.Like
 import com.example.c001apk.logic.model.TotalReplyResponse
 import com.example.c001apk.logic.repository.BlackListRepo
 import com.example.c001apk.logic.repository.HistoryFavoriteRepo
 import com.example.c001apk.logic.repository.NetworkRepo
 import com.example.c001apk.util.Event
-import com.example.c001apk.util.PrefManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.launch
-import java.net.URLDecoder
 import javax.inject.Inject
 
 @HiltViewModel
 class Reply2ReplyBottomSheetViewModel @Inject constructor(
-    private val repository: BlackListRepo,
-    private val historyFavoriteRepo: HistoryFavoriteRepo,
+    private val blackListRepo: BlackListRepo,
+    private val historyRepo: HistoryFavoriteRepo,
     private val networkRepo: NetworkRepo
 ) : ViewModel() {
 
@@ -35,25 +32,17 @@ class Reply2ReplyBottomSheetViewModel @Inject constructor(
     var position: Int? = null
     var fuid: String? = null
     var listSize: Int = -1
-    var listType: String = "lastupdate_desc"
     var page = 1
     var lastItem: String? = null
+    var id: String? = null
+    var uid: String? = null
     var isInit: Boolean = true
-    var isRefreshing: Boolean = true
+    var isRefreshing: Boolean = false
     var isLoadMore: Boolean = false
     var isEnd: Boolean = false
     var lastVisibleItemPosition: Int = 0
-    var itemCount = 1
-    var uid: String? = null
-    var avatar: String? = null
-    var device: String? = null
-    var replyCount: String? = null
-    var dateLine: Long? = null
-    var feedType: String? = null
-    var errorMessage: String? = null
-    var id: String? = null
 
-    val changeState = MutableLiveData<Pair<FooterAdapter.LoadState, String?>>()
+    val footerState = MutableLiveData<FooterState>()
     val totalReplyData = MutableLiveData<List<TotalReplyResponse.Data>>()
     var oriReply: ArrayList<TotalReplyResponse.Data> = ArrayList()
 
@@ -62,52 +51,45 @@ class Reply2ReplyBottomSheetViewModel @Inject constructor(
             networkRepo.getReply2Reply(id.toString(), page, lastItem)
                 .onStart {
                     if (isLoadMore)
-                        changeState.postValue(Pair(FooterAdapter.LoadState.LOADING, null))
+                        footerState.postValue(FooterState.Loading)
                 }
                 .collect { result ->
                     val replyTotalList = totalReplyData.value?.toMutableList() ?: ArrayList()
                     val reply = result.getOrNull()
-                    if (reply?.message != null) {
-                        changeState.postValue(
-                            Pair(
-                                FooterAdapter.LoadState.LOADING_ERROR,
-                                reply.message
-                            )
-                        )
-                        return@collect
-                    } else if (!reply?.data.isNullOrEmpty()) {
-                        lastItem = reply?.data?.last()?.id
-                        if (!isLoadMore) {
-                            replyTotalList.clear()
-                            replyTotalList.addAll(oriReply)
-                        }
-                        listSize = replyTotalList.size
-                        reply?.data?.let { data ->
-                            data.forEach {
+                    if (reply != null) {
+                        if (reply.message != null) {
+                            footerState.postValue(FooterState.LoadingError(reply.message))
+                            return@collect
+                        } else if (!reply.data.isNullOrEmpty()) {
+                            lastItem = reply.data.last().id
+                            if (!isLoadMore) {
+                                replyTotalList.clear()
+                                replyTotalList.addAll(oriReply)
+                            }
+                            listSize = replyTotalList.size
+                            reply.data.forEach {
                                 if (it.entityType == "feed_reply")
-                                    if (!repository.checkUid(it.uid))
+                                    if (!blackListRepo.checkUid(it.uid))
                                         replyTotalList.add(it)
                             }
+                            page++
+                            totalReplyData.postValue(replyTotalList)
+                            footerState.postValue(FooterState.LoadingDone)
+                        } else if (reply.data?.isEmpty() == true) {
+                            isEnd = true
+                            if (replyTotalList.isEmpty())
+                                totalReplyData.postValue(oriReply)
+                            footerState.postValue(FooterState.LoadingEnd(LOADING_END))
                         }
-                        changeState.postValue(Pair(FooterAdapter.LoadState.LOADING_COMPLETE, null))
-                    } else if (reply?.data?.isEmpty() == true) {
-                        if (replyTotalList.isEmpty())
-                            replyTotalList.addAll(oriReply)
-                        changeState.postValue(Pair(FooterAdapter.LoadState.LOADING_END, null))
-                        isEnd = true
-                        result.exceptionOrNull()?.printStackTrace()
                     } else {
-                        if (replyTotalList.isEmpty())
-                            replyTotalList.addAll(oriReply)
-                        changeState.postValue(
-                            Pair(
-                                FooterAdapter.LoadState.LOADING_ERROR, LOADING_FAILED
-                            )
-                        )
                         isEnd = true
+                        if (replyTotalList.isEmpty())
+                            totalReplyData.postValue(oriReply)
+                        footerState.postValue(FooterState.LoadingError(LOADING_FAILED))
                         result.exceptionOrNull()?.printStackTrace()
                     }
-                    totalReplyData.postValue(replyTotalList)
+                    isRefreshing = false
+                    isLoadMore = false
                 }
         }
 
@@ -123,34 +105,10 @@ class Reply2ReplyBottomSheetViewModel @Inject constructor(
                     val response = result.getOrNull()
                     response?.let {
                         if (response.data != null) {
-                            if (response.data.id != null) {
-                                toastText.postValue(Event("回复成功"))
-                                closeSheet.postValue(Event(true))
-                                replyTotalList.add(
-                                    (position ?: 0) + 1,
-                                    TotalReplyResponse.Data(
-                                        null,
-                                        "feed_reply",
-                                        (12345678..87654321).random().toString(),
-                                        ruid.toString(),
-                                        PrefManager.uid,
-                                        id.toString(),
-                                        URLDecoder.decode(PrefManager.username, "UTF-8"),
-                                        uname.toString(),
-                                        replyData["message"].toString(),
-                                        "",
-                                        null,
-                                        System.currentTimeMillis() / 1000,
-                                        "0",
-                                        "0",
-                                        PrefManager.userAvatar,
-                                        ArrayList(),
-                                        0,
-                                        TotalReplyResponse.UserAction(0)
-                                    )
-                                )
-                                totalReplyData.postValue(replyTotalList)
-                            }
+                            toastText.postValue(Event("回复成功"))
+                            closeSheet.postValue(Event(true))
+                            replyTotalList.add((position ?: 0) + 1, response.data)
+                            totalReplyData.postValue(replyTotalList)
                         } else {
                             response.message?.let {
                                 toastText.postValue(Event(it))
@@ -193,9 +151,7 @@ class Reply2ReplyBottomSheetViewModel @Inject constructor(
                             replyList.removeAt(position)
                             totalReplyData.postValue(replyList)
                         } else if (!response.message.isNullOrEmpty()) {
-                            response.message.let {
-                                toastText.postValue(Event(it))
-                            }
+                            toastText.postValue(Event(response.message))
                         }
                     } else {
                         result.exceptionOrNull()?.printStackTrace()
@@ -204,28 +160,24 @@ class Reply2ReplyBottomSheetViewModel @Inject constructor(
         }
     }
 
-    fun onPostLikeReply(id: String, position: Int, likeData: Like) {
-        val likeType = if (likeData.isLike.get() == 1) "unLikeReply"
+    fun onPostLikeReply(id: String, isLike: Int) {
+        val likeType = if (isLike == 1) "unLikeReply"
         else "likeReply"
         val likeUrl = "/v6/feed/$likeType"
         viewModelScope.launch(Dispatchers.IO) {
             networkRepo.postLikeReply(likeUrl, id)
-                .catch { err ->
-                    err.message?.let {
-                        toastText.postValue(Event(it))
-                    }
-                }
                 .collect { result ->
                     val response = result.getOrNull()
                     if (response != null) {
                         if (response.data != null) {
-                            val count = response.data
-                            val isLike = if (likeData.isLike.get() == 1) 0 else 1
-                            likeData.likeNum.set(count)
-                            likeData.isLike.set(isLike)
-                            val currentList = totalReplyData.value?.toMutableList() ?: ArrayList()
-                            currentList[position].likenum = count
-                            currentList[position].userAction?.like = isLike
+                            val currentList = totalReplyData.value?.map {
+                                if (it.id == id) {
+                                    it.copy(
+                                        likenum = response.data,
+                                        userAction = it.userAction?.copy(like = if (isLike == 1) 0 else 1)
+                                    )
+                                } else it
+                            } ?: emptyList()
                             totalReplyData.postValue(currentList)
                         } else {
                             response.message?.let {
@@ -247,9 +199,7 @@ class Reply2ReplyBottomSheetViewModel @Inject constructor(
                     val response = result.getOrNull()
                     response?.let {
                         if (response.data != null) {
-                            response.data.let {
-                                toastText.postValue(Event(it))
-                            }
+                            toastText.postValue(Event(response.data))
                             if (response.data == "验证通过") {
                                 onPostReply()
                             }
@@ -268,7 +218,7 @@ class Reply2ReplyBottomSheetViewModel @Inject constructor(
 
     fun saveUid(uid: String) {
         viewModelScope.launch(Dispatchers.IO) {
-            repository.saveUid(uid)
+            blackListRepo.saveUid(uid)
         }
     }
 
@@ -282,7 +232,7 @@ class Reply2ReplyBottomSheetViewModel @Inject constructor(
         dateline: String,
     ) {
         viewModelScope.launch(Dispatchers.IO) {
-            historyFavoriteRepo.saveHistory(
+            historyRepo.saveHistory(
                 id,
                 uid,
                 username,

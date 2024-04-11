@@ -28,6 +28,8 @@ import com.example.c001apk.util.IntentUtil
 import com.example.c001apk.util.PrefManager
 import com.example.c001apk.util.TokenDeviceUtils.getDeviceCode
 import com.example.c001apk.util.TokenDeviceUtils.randHexString
+import com.example.c001apk.util.doOnMainThreadIdle
+import com.example.c001apk.util.setBottomPaddingSpace
 import com.google.android.material.color.MaterialColors
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.slider.Slider
@@ -51,15 +53,17 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
             addOnScrollListener(object : RecyclerView.OnScrollListener() {
                 override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
                     super.onScrolled(recyclerView, dx, dy)
-
                     if (dy > 0) {
                         (activity as? INavViewContainer)?.hideNavigationView()
                     } else if (dy < 0) {
                         (activity as? INavViewContainer)?.showNavigationView()
                     }
-
                 }
             })
+
+            doOnMainThreadIdle {
+                recyclerView.setBottomPaddingSpace()
+            }
 
         }
         return recyclerView
@@ -97,6 +101,7 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
                 "isIconMiniCard" -> PrefManager.isIconMiniCard
                 "isOpenLinkOutside" -> PrefManager.isOpenLinkOutside
                 "isColorFilter" -> PrefManager.isColorFilter
+                "isCheckUpdate" -> PrefManager.isCheckUpdate
                 else -> throw IllegalArgumentException("Invalid key: $key")
             }
         }
@@ -111,6 +116,7 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
                 "isIconMiniCard" -> PrefManager.isIconMiniCard = value
                 "isOpenLinkOutside" -> PrefManager.isOpenLinkOutside = value
                 "isColorFilter" -> PrefManager.isColorFilter = value
+                "isCheckUpdate" -> PrefManager.isCheckUpdate = value
                 else -> throw IllegalArgumentException("Invalid key: $key")
             }
         }

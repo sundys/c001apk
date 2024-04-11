@@ -3,13 +3,18 @@ package com.example.c001apk.ui.message
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.c001apk.adapter.FooterAdapter
-import com.example.c001apk.adapter.ItemListener
+import com.example.c001apk.adapter.FooterState
+import com.example.c001apk.adapter.LoadingState
+import com.example.c001apk.constant.Constants.LOADING_END
 import com.example.c001apk.constant.Constants.LOADING_FAILED
 import com.example.c001apk.logic.model.MessageResponse
 import com.example.c001apk.logic.repository.BlackListRepo
 import com.example.c001apk.logic.repository.HistoryFavoriteRepo
 import com.example.c001apk.logic.repository.NetworkRepo
+import com.example.c001apk.util.CookieUtil.atcommentme
+import com.example.c001apk.util.CookieUtil.atme
+import com.example.c001apk.util.CookieUtil.contacts_follow
+import com.example.c001apk.util.CookieUtil.feedlike
 import com.example.c001apk.util.Event
 import com.example.c001apk.util.PrefManager
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -22,52 +27,40 @@ import javax.inject.Inject
 
 @HiltViewModel
 class MessageViewModel @Inject constructor(
-    private val repository: BlackListRepo,
-    private val historyFavoriteRepo: HistoryFavoriteRepo,
+    private val blackListRepo: BlackListRepo,
+    private val historyRepo: HistoryFavoriteRepo,
     private val networkRepo: NetworkRepo
 ) : ViewModel() {
 
     var isInit: Boolean = true
-    var type: String? = null
     var listSize: Int = -1
-    var listType: String = "lastupdate_desc"
     var page = 1
     var lastItem: String? = null
-    var isRefreshing: Boolean = true
+    var isRefreshing: Boolean = false
     var isLoadMore: Boolean = false
     var isEnd: Boolean = false
     var lastVisibleItemPosition: Int = 0
-    var itemCount = 1
-    var uid: String? = null
-    var avatar: String? = null
-    var device: String? = null
-    var replyCount: String? = null
-    var dateLine: Long? = null
-    var feedType: String? = null
-    var errorMessage: String? = null
-    var id: String? = null
 
-
-    private var url = "/v6/notification/list"
-    val countList = ArrayList<String>()
-    val messCountList = ArrayList<Int>()
-    val changeState = MutableLiveData<Pair<FooterAdapter.LoadState, String?>>()
+    var countList = MutableLiveData<List<String>>()
+    var messCountList = MutableLiveData<Event<Unit>>()
+    val footerState = MutableLiveData<FooterState>()
     val messageData = MutableLiveData<List<MessageResponse.Data>>()
-    val doWhat = MutableLiveData<Event<String>>()
     val toastText = MutableLiveData<Event<String>>()
+    val loadingState = MutableLiveData<LoadingState>()
 
     fun fetchProfile() {
         viewModelScope.launch(Dispatchers.IO) {
-            networkRepo.getProfile(uid.toString())
+            networkRepo.getProfile(PrefManager.uid)
                 .collect { result ->
                     val data = result.getOrNull()
                     if (data?.data != null) {
-                        countList.clear()
-                        countList.apply {
-                            add(data.data.feed)
-                            add(data.data.follow)
-                            add(data.data.fans)
-                        }
+                        countList.postValue(
+                            listOf(
+                                data.data.feed,
+                                data.data.follow,
+                                data.data.fans
+                            )
+                        )
                         PrefManager.username =
                             withContext(Dispatchers.IO) {
                                 URLEncoder.encode(data.data.username, "UTF-8")
@@ -76,16 +69,14 @@ class MessageViewModel @Inject constructor(
                         PrefManager.level = data.data.level
                         PrefManager.experience = data.data.experience.toString()
                         PrefManager.nextLevelExperience = data.data.nextLevelExperience.toString()
-                        doWhat.postValue(Event("showProfile"))
-                        doWhat.postValue(Event("countList"))
+                        loadingState.postValue(LoadingState.LoadingDone)
 
                         fetchMessage()
                     } else {
                         isEnd = true
                         isRefreshing = false
                         isLoadMore = false
-                        doWhat.postValue(Event("isRefreshing"))
-                        //binding.swipeRefresh.isRefreshing = false
+                        loadingState.postValue(LoadingState.LoadingFailed(""))
                         result.exceptionOrNull()?.printStackTrace()
                     }
                 }
@@ -98,44 +89,31 @@ class MessageViewModel @Inject constructor(
             networkRepo.checkLoginInfo()
                 .collect { result ->
                     val response = result.getOrNull()
-                    response?.let {
-                        response.body()?.let {
-                            if (response.body()?.data?.token != null) {
-                                response.body()?.data?.let { login ->
-                                    messCountList.apply {
-                                        add(login.notifyCount.atme)
-                                        add(login.notifyCount.atcommentme)
-                                        add(login.notifyCount.feedlike)
-                                        add(login.notifyCount.contactsFollow)
-                                        add(login.notifyCount.message)
-                                    }
-                                }
-                                doWhat.postValue(Event("messCountList"))
-                            }
-                        }
+                    response?.body()?.data?.let {
+                        atme = it.notifyCount.atme
+                        atcommentme = it.notifyCount.atcommentme
+                        feedlike = it.notifyCount.feedlike
+                        contacts_follow = it.notifyCount.contactsFollow
+                        messCountList.postValue(Event(Unit))
                     }
                 }
         }
     }
 
 
-    fun fetchMessage() {
+    fun fetchMessage(url: String = "/v6/notification/list") {
         viewModelScope.launch(Dispatchers.IO) {
             networkRepo.getMessage(url, page, lastItem)
                 .onStart {
                     if (isLoadMore)
-                        changeState.postValue(Pair(FooterAdapter.LoadState.LOADING, null))
+                        footerState.postValue(FooterState.Loading)
                 }
                 .collect { result ->
                     val messageList = messageData.value?.toMutableList() ?: ArrayList()
                     val feed = result.getOrNull()
                     if (feed != null) {
                         if (!feed.message.isNullOrEmpty()) {
-                            changeState.postValue(
-                                Pair(
-                                    FooterAdapter.LoadState.LOADING_ERROR, feed.message
-                                )
-                            )
+                            footerState.postValue(FooterState.LoadingError(feed.message))
                             return@collect
                         } else if (!feed.data.isNullOrEmpty()) {
                             lastItem = feed.data.last().id
@@ -144,31 +122,26 @@ class MessageViewModel @Inject constructor(
                             if (isRefreshing || isLoadMore) {
                                 feed.data.forEach {
                                     if (it.entityType == "notification")
-                                        if (!repository.checkUid(it.fromuid))
+                                        if (!blackListRepo.checkUid(it.fromuid))
                                             messageList.add(it)
                                 }
                             }
-                            changeState.postValue(
-                                Pair(
-                                    FooterAdapter.LoadState.LOADING_COMPLETE, null
-                                )
-                            )
+                            page++
+                            messageData.postValue(messageList)
+                            footerState.postValue(FooterState.LoadingDone)
                         } else if (feed.data?.isEmpty() == true) {
-                            if (isRefreshing)
-                                messageList.clear()
-                            changeState.postValue(Pair(FooterAdapter.LoadState.LOADING_END, null))
                             isEnd = true
+                            if (isRefreshing)
+                                messageData.postValue(emptyList())
+                            footerState.postValue(FooterState.LoadingEnd(LOADING_END))
                         }
                     } else {
-                        changeState.postValue(
-                            Pair(
-                                FooterAdapter.LoadState.LOADING_ERROR, LOADING_FAILED
-                            )
-                        )
                         isEnd = true
+                        footerState.postValue(FooterState.LoadingError(LOADING_FAILED))
                         result.exceptionOrNull()?.printStackTrace()
                     }
-                    messageData.postValue(messageList)
+                    isRefreshing = false
+                    isLoadMore = false
                 }
         }
     }
@@ -196,7 +169,7 @@ class MessageViewModel @Inject constructor(
 
     fun saveUid(uid: String) {
         viewModelScope.launch(Dispatchers.IO) {
-            repository.saveUid(uid)
+            blackListRepo.saveUid(uid)
         }
     }
 
@@ -210,7 +183,7 @@ class MessageViewModel @Inject constructor(
         dateline: String,
     ) {
         viewModelScope.launch(Dispatchers.IO) {
-            historyFavoriteRepo.saveHistory(
+            historyRepo.saveHistory(
                 id,
                 uid,
                 username,
@@ -221,8 +194,5 @@ class MessageViewModel @Inject constructor(
             )
         }
     }
-
-
-    inner class ItemClickListener : ItemListener
 
 }

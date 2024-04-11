@@ -18,7 +18,7 @@ import javax.inject.Inject
 @HiltViewModel
 class MainViewModel @Inject constructor(
     private val networkRepo: NetworkRepo
-): ViewModel() {
+) : ViewModel() {
 
     var badge: Int = 0
     var isInit: Boolean = true
@@ -31,9 +31,9 @@ class MainViewModel @Inject constructor(
                     val appInfo = result.getOrNull()
                     if (appInfo?.data != null) {
                         try {
-                            PrefManager.VERSION_NAME = appInfo.data.apkversionname
+                            PrefManager.VERSION_NAME = appInfo.data.apkversionname ?: ""
                             PrefManager.API_VERSION = "13"
-                            PrefManager.VERSION_CODE = appInfo.data.apkversioncode
+                            PrefManager.VERSION_CODE = appInfo.data.apkversioncode ?: ""
                             PrefManager.USER_AGENT =
                                 "Dalvik/2.1.0 (Linux; U; Android ${PrefManager.ANDROID_VERSION}; ${PrefManager.MODEL} ${PrefManager.BUILDNUMBER}) (#Build; ${PrefManager.BRAND}; ${PrefManager.MODEL}; ${PrefManager.BUILDNUMBER}; ${PrefManager.ANDROID_VERSION}) +CoolMarket/${appInfo.data.apkversionname}-${appInfo.data.apkversioncode}-${Constants.MODE}"
                         } catch (e: Exception) {
@@ -56,13 +56,10 @@ class MainViewModel @Inject constructor(
                             if (response.body()?.data?.token != null) {
                                 response.body()?.data?.let { login ->
                                     badge = login.notifyCount.badge
-                                    CookieUtil.notification = login.notifyCount.notification
-                                    CookieUtil.contacts_follow = login.notifyCount.contactsFollow
-                                    CookieUtil.message = login.notifyCount.message
                                     CookieUtil.atme = login.notifyCount.atme
                                     CookieUtil.atcommentme = login.notifyCount.atcommentme
                                     CookieUtil.feedlike = login.notifyCount.feedlike
-                                    CookieUtil.badge = login.notifyCount.badge
+                                    CookieUtil.contacts_follow = login.notifyCount.contactsFollow
                                     PrefManager.isLogin = true
                                     PrefManager.uid = login.uid
                                     PrefManager.username =

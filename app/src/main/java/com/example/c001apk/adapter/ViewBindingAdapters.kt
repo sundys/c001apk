@@ -12,6 +12,7 @@ import android.widget.BaseAdapter
 import android.widget.ImageView
 import android.widget.TextView
 import androidx.constraintlayout.widget.ConstraintLayout
+import androidx.core.view.isVisible
 import androidx.databinding.BindingAdapter
 import com.absinthe.libraries.utils.extensions.dp
 import com.example.c001apk.R
@@ -19,6 +20,7 @@ import com.example.c001apk.logic.model.FeedArticleContentBean
 import com.example.c001apk.logic.model.HomeFeedResponse
 import com.example.c001apk.util.ImageUtil
 import com.example.c001apk.util.NetWorkUtil
+import com.example.c001apk.util.PrefManager
 import com.example.c001apk.util.SpannableStringBuilderUtil
 import com.example.c001apk.view.LinearAdapterLayout
 import com.example.c001apk.view.LinkTextView
@@ -52,23 +54,32 @@ fun setExtraPic(imageView: ImageView, extraPic: String?) {
 }
 
 @BindingAdapter("setFollowText")
-fun setFollowText(textView: TextView, userAction: HomeFeedResponse.UserAction?) {
-    if (userAction == null)
-        textView.visibility = View.GONE
-    else {
-        textView.visibility = View.VISIBLE
-        if (userAction.followAuthor == 0) {
-            textView.text = "关注"
-            MaterialColors.getColor(
-                textView.context,
-                com.google.android.material.R.attr.colorPrimary,
-                0
-            )
-        } else if (userAction.followAuthor == 1) {
-            textView.text = "取消关注"
-            textView.setTextColor(textView.context.getColor(android.R.color.darker_gray))
+fun setFollowText(textView: TextView, followAuthor: Int) {
+    with(PrefManager.isLogin) {
+        textView.isVisible = this
+        if (this) {
+            when (followAuthor) {
+                0 -> {
+                    textView.text = "关注"
+                    textView.setTextColor(
+                        MaterialColors.getColor(
+                            textView.context,
+                            com.google.android.material.R.attr.colorPrimary,
+                            0
+                        )
+                    )
+                }
+
+                1 -> {
+                    textView.text = "取消关注"
+                    textView.setTextColor(textView.context.getColor(android.R.color.darker_gray))
+                }
+
+                else -> {}
+            }
         }
     }
+
 }
 
 @BindingAdapter("setArticleImage")
@@ -95,6 +106,20 @@ fun setRows(
     isFeedContent: Boolean?
 ) {
     relationRows?.let {
+        val dataList = it.toMutableList()
+        if (targetRow?.id != null) {
+            dataList.add(
+                0,
+                HomeFeedResponse.RelationRows(
+                    targetRow.id,
+                    targetRow.logo,
+                    targetRow.title,
+                    targetRow.url,
+                    targetRow.targetType.toString()
+                )
+            )
+        }
+
         linearAdapterLayout.adapter = object : BaseAdapter() {
             override fun getCount(): Int =
                 if (targetRow?.id == null) it.size
@@ -116,61 +141,28 @@ fun setRows(
                     false
                 )
                 if (isFeedContent == true)
-                    view.background = view.context.getDrawable(R.drawable.round_corners_20)
+                    view.background = parent.context.getDrawable(R.drawable.round_corners_20)
                 val logo: ImageView = view.findViewById(R.id.iconMiniScrollCard)
                 val title: TextView = view.findViewById(R.id.title)
-                val type: String
-                val id: String
-                val url: String
-                if (targetRow?.id != null) {
-                    if (position == 0) {
-                        type = targetRow.targetType.toString()
-                        id = targetRow.id
-                        url = targetRow.url
-                        title.text = targetRow.title
-                        ImageUtil.showIMG(logo, targetRow.logo)
-                    } else {
-                        val layoutParams = ConstraintLayout.LayoutParams(
-                            ConstraintLayout.LayoutParams.WRAP_CONTENT,
-                            ConstraintLayout.LayoutParams.WRAP_CONTENT
-                        )
-                        layoutParams.setMargins(5.dp, 0, 0, 0)
-                        view.layoutParams = layoutParams
-                        type = it[position - 1].entityType
-                        id = it[position - 1].id
-                        url = it[position - 1].url
-                        title.text = it[position - 1].title
-                        ImageUtil.showIMG(
-                            logo,
-                            it[position - 1].logo
-                        )
-                    }
-                } else {
-                    if (position == 0) {
-                        type = it[0].entityType
-                        id = it[0].id
-                        title.text = it[0].title
-                        url = it[0].url
-                        ImageUtil.showIMG(logo, it[0].logo)
-                    } else {
-                        val layoutParams = ConstraintLayout.LayoutParams(
-                            ConstraintLayout.LayoutParams.WRAP_CONTENT,
-                            ConstraintLayout.LayoutParams.WRAP_CONTENT
-                        )
-                        layoutParams.setMargins(5.dp, 0, 0, 0)
-                        view.layoutParams = layoutParams
-                        type = it[position].entityType
-                        id = it[position].id
-                        url = it[position].url
-                        title.text = it[position].title
-                        ImageUtil.showIMG(
-                            logo,
-                            it[position].logo
-                        )
-                    }
+                if (position != 0) {
+                    val layoutParams = ConstraintLayout.LayoutParams(
+                        ConstraintLayout.LayoutParams.WRAP_CONTENT,
+                        ConstraintLayout.LayoutParams.WRAP_CONTENT
+                    )
+                    layoutParams.setMargins(5.dp, 0, 0, 0)
+                    view.layoutParams = layoutParams
                 }
+                title.text = dataList[position].title
+                ImageUtil.showIMG(logo, dataList[position].logo)
+
                 view.setOnClickListener {
-                    NetWorkUtil.openLinkDyh(type, view.context, url, id, title.text.toString())
+                    NetWorkUtil.openLinkDyh(
+                        dataList[position].entityType,
+                        parent.context,
+                        dataList[position].url,
+                        dataList[position].id,
+                        title.text.toString()
+                    )
                 }
                 return view
             }
@@ -178,31 +170,31 @@ fun setRows(
     }
 }
 
-@BindingAdapter(value = ["picArr", "feedType"], requireAll = true)
+@BindingAdapter(value = ["pic", "picArr", "feedType"], requireAll = true)
 fun setGridView(
     imageView: NineGridImageView,
+    pic: String?,
     picArr: List<String>?,
     feedType: String?
 ) {
     if (!picArr.isNullOrEmpty()) {
-        imageView.visibility = View.VISIBLE
-        if (picArr.size == 1 || feedType == "feedArticle") {
-            val imageLp = ImageUtil.getImageLp(picArr[0])
+        imageView.isVisible = true
+        if (picArr.size == 1 || feedType in listOf("feedArticle", "trade")) {
+            val imageLp = ImageUtil.getImageLp(pic ?: picArr[0])
             imageView.imgWidth = imageLp.first
             imageView.imgHeight = imageLp.second
         }
         imageView.apply {
             val urlList: MutableList<String> = ArrayList()
-            if (feedType == "feedArticle" && imgWidth > imgHeight)
-                urlList.add("${picArr[0]}.s.jpg")
+            if (feedType in listOf("feedArticle", "trade") && imgWidth > imgHeight)
+                if (!pic.isNullOrEmpty()) urlList.add("$pic.s.jpg")
+                else urlList.add("${picArr[0]}.s.jpg")
             else
-                picArr.forEach {
-                    urlList.add("$it.s.jpg")
-                }
+                urlList.addAll(picArr.map { "$it.s.jpg" })
             setUrlList(urlList)
         }
     } else {
-        imageView.visibility = View.GONE
+        imageView.isVisible = false
     }
 }
 
@@ -261,10 +253,9 @@ fun setCustomText(
 
 @BindingAdapter("setHotReply")
 fun setHotReply(hotReply: TextView, feed: HomeFeedResponse.Data?) {
-
     if (feed != null) {
         if (!feed.replyRows.isNullOrEmpty()) {
-            hotReply.visibility = View.VISIBLE
+            hotReply.isVisible = true
             hotReply.highlightColor = Color.TRANSPARENT
             val mess =
                 if (feed.replyRows[0].picArr.isNullOrEmpty())
@@ -282,18 +273,18 @@ fun setHotReply(hotReply: TextView, feed: HomeFeedResponse.Data?) {
             )
             SpannableStringBuilderUtil.isReturn = true
         } else
-            hotReply.visibility = View.GONE
+            hotReply.isVisible = false
     } else
-        hotReply.visibility = View.GONE
+        hotReply.isVisible = false
 }
 
 
 @BindingAdapter("setImage")
 fun setImage(imageView: ImageView, imageUrl: String?) {
     if (imageUrl.isNullOrEmpty())
-        imageView.visibility = View.GONE
+        imageView.isVisible = false
     else {
-        imageView.visibility = View.VISIBLE
+        imageView.isVisible = true
         ImageUtil.showIMG(imageView, imageUrl)
     }
 }
@@ -301,6 +292,6 @@ fun setImage(imageView: ImageView, imageUrl: String?) {
 @BindingAdapter("setCover")
 fun setCover(imageView: ImageView, imageUrl: String?) {
     imageUrl?.let {
-        ImageUtil.showUserCover(imageView, it)
+        ImageUtil.showIMG(imageView, it, true)
     }
 }

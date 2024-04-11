@@ -1,95 +1,106 @@
 package com.example.c001apk.ui.app
 
 import androidx.lifecycle.MutableLiveData
-import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.c001apk.adapter.FooterAdapter
-import com.example.c001apk.adapter.ItemListener
+import com.example.c001apk.adapter.LoadingState
+import com.example.c001apk.constant.Constants.LOADING_FAILED
 import com.example.c001apk.logic.model.HomeFeedResponse
 import com.example.c001apk.logic.repository.BlackListRepo
+import com.example.c001apk.logic.repository.HistoryFavoriteRepo
 import com.example.c001apk.logic.repository.NetworkRepo
+import com.example.c001apk.ui.base.BaseAppViewModel
 import com.example.c001apk.util.Event
+import dagger.assisted.Assisted
+import dagger.assisted.AssistedFactory
+import dagger.assisted.AssistedInject
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import javax.inject.Inject
 
-@HiltViewModel
-class AppViewModel @Inject constructor(
-    private val repository: BlackListRepo,
-    private val networkRepo: NetworkRepo
-): ViewModel() {
+@HiltViewModel(assistedFactory = AppViewModel.Factory::class)
+class AppViewModel @AssistedInject constructor(
+    @Assisted private val id: String,
+    blackListRepo: BlackListRepo,
+    historyRepo: HistoryFavoriteRepo,
+    networkRepo: NetworkRepo
+) : BaseAppViewModel(blackListRepo, historyRepo, networkRepo) {
 
-    var collectionUrl: String? = null
-    private var commentStatusText: String? = null
+    @AssistedFactory
+    interface Factory {
+        fun create(id: String): AppViewModel
+    }
+
     var tabList: List<String>? = null
-    var url: String? = null
-    var type: String? = null
-    var isFollow: Boolean = false
-    var followUrl: String? = null
-    var appId: String? = null
-    var title: String? = null
-    var isInit: Boolean = true
-    var uid: String? = null
-    var errorMessage: String? = null
-    var uname: String? = null
-    var lastVisibleItemPosition: Int = 0
-    var isRefreshing: Boolean = true
-    var isLoadMore: Boolean = false
-    var isEnd: Boolean = false
-    var page = 1
-    var listSize: Int = -1
-    var avatar: String? = null
-    var cover: String? = null
-    var level: String? = null
-    var like: String? = null
-    var follow: String? = null
-    var fans: String? = null
-    var packageName: String? = null
-    private var versionCode: String? = null
-    val showError = MutableLiveData<Event<Boolean>>()
-    val changeState = MutableLiveData<Pair<FooterAdapter.LoadState, String?>>()
-    val doNext = MutableLiveData<Event<Boolean>>()
-    val showAppInfo = MutableLiveData<Event<Boolean>>()
-    var appData: HomeFeedResponse.Data? = null
-    val download = MutableLiveData<Event<Boolean>>()
-    val toastText = MutableLiveData<Event<String>>()
+    var errMsg: String? = null
+    var downloadUrl: String? = null
 
-    fun fetchAppInfo(id: String) {
+    // get download link params
+    var appId: String? = null
+    private var packageName: String? = null
+    private var versionCode: String? = null
+    val download = MutableLiveData<Event<Boolean>>()
+
+    var appData: HomeFeedResponse.Data? = null
+    val blockState = MutableLiveData<Event<Boolean>>()
+
+    val searchState = MutableLiveData<Event<Unit>>()
+    val followState = MutableLiveData<Event<Int>>()
+
+    fun fetchAppInfo() {
         viewModelScope.launch(Dispatchers.IO) {
             networkRepo.getAppInfo(id)
                 .collect { result ->
-
                     val appInfo = result.getOrNull()
-                    if (appInfo?.message != null) {
-                        errorMessage = appInfo.message
-                        showError.postValue(Event(true))
-                    } else if (appInfo?.data != null) {
-                        isFollow = appInfo.data.userAction?.follow == 1
-                        packageName = appInfo.data.apkname
-                        versionCode = appInfo.data.apkversioncode
-                        commentStatusText = appInfo.data.commentStatusText
-                        type = appInfo.data.entityType
-                        appId = appInfo.data.id
-                        title = appInfo.data.title
-                        appData = appInfo.data
-                        showAppInfo.postValue(Event(true))
-
-                        if (commentStatusText == "允许评论" || type == "appForum") {
-                            tabList = listOf("最近回复", "最新发布", "热度排序")
-                            doNext.postValue(Event(true))
-                        } else {
-                            errorMessage = appInfo.data.commentStatusText
-                            doNext.postValue(Event(false))
+                    if (appInfo != null) {
+                        if (appInfo.message != null) {
+                            activityState.postValue(LoadingState.LoadingError(appInfo.message))
+                        } else if (appInfo.data != null) {
+                            // get download link params
+                            appId = appInfo.data.id
+                            packageName = appInfo.data.apkname
+                            versionCode = appInfo.data.apkversioncode
+                            // appData for App Info
+                            appData = appInfo.data
+                            if (appInfo.data.commentStatusText == "允许评论" || appInfo.data.entityType == "appForum") {
+                                tabList = listOf("最近回复", "最新发布", "热度排序")
+                            } else {
+                                errMsg = appInfo.data.commentStatusText
+                            }
+                            checkBlock(appInfo.data.title ?: "") //menuBlock
+                            checkFollow() //menuFollow
+                            activityState.postValue(LoadingState.LoadingDone)
                         }
                     } else {
-                        showAppInfo.postValue(Event(false))
+                        activityState.postValue(LoadingState.LoadingFailed(LOADING_FAILED))
                         result.exceptionOrNull()?.printStackTrace()
                     }
                 }
         }
     }
 
+    fun onGetFollowApk(followUrl: String, tag: String?, id: String?) {
+        viewModelScope.launch(Dispatchers.IO) {
+            networkRepo.getFollow(followUrl, tag, id)
+                .collect { result ->
+                    val response = result.getOrNull()
+                    if (response != null) {
+                        if (!response.message.isNullOrEmpty()) {
+                            toastText.postValue(Event(response.message))
+                        } else if (response.data?.follow != null) {
+                            response.data.follow.let {
+                                appData?.userAction?.follow = it
+                                checkFollow()
+                                val text = if (it == 1) "关注成功"
+                                else "取消关注成功"
+                                toastText.postValue(Event(text))
+                            }
+                        }
+                    } else {
+                        result.exceptionOrNull()?.printStackTrace()
+                    }
+                }
+        }
+    }
 
     fun onGetDownloadLink() {
         viewModelScope.launch(Dispatchers.IO) {
@@ -101,7 +112,7 @@ class AppViewModel @Inject constructor(
                 .collect { result ->
                     val link = result.getOrNull()
                     if (link != null) {
-                        collectionUrl = link
+                        downloadUrl = link
                         download.postValue(Event(true))
                     } else {
                         result.exceptionOrNull()?.printStackTrace()
@@ -111,35 +122,28 @@ class AppViewModel @Inject constructor(
 
     }
 
-    fun onGetFollow() {
+    private fun checkBlock(title: String) {
         viewModelScope.launch(Dispatchers.IO) {
-            networkRepo.getFollow(followUrl.toString(), null, appId)
-                .collect { result ->
-                    val response = result.getOrNull()
-                    if (response != null) {
-                        response.data?.follow?.let {
-                            isFollow = !isFollow
-                            toastText.postValue(
-                                Event(
-                                    if (response.data.follow == 1) "关注成功"
-                                    else "取消关注成功"
-                                )
-                            )
-                        }
-                    } else {
-                        result.exceptionOrNull()?.printStackTrace()
-                    }
-                }
+            blockState.postValue(Event((blackListRepo.checkTopic(title))))
         }
     }
 
-    fun saveTopic(title: String) {
-        viewModelScope.launch {
-            repository.saveTopic(title)
+    private fun checkFollow() {
+        viewModelScope.launch(Dispatchers.IO) {
+            appData?.userAction?.follow?.let {
+                followState.postValue(Event(it))
+            }
         }
     }
 
+    override fun fetchData() {}
 
-    inner class ItemClickListener : ItemListener
+    fun checkMenuState() {
+        checkFollow()
+        searchState.postValue(Event(Unit))
+        appData?.title?.let {
+            checkBlock(it)
+        }
+    }
 
 }
