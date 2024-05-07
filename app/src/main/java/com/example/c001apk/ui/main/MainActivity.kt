@@ -16,6 +16,9 @@ import com.example.c001apk.ui.base.BaseActivity
 import com.example.c001apk.ui.home.HomeFragment
 import com.example.c001apk.ui.message.MessageFragment
 import com.example.c001apk.ui.settings.SettingsFragment
+import com.example.c001apk.util.ActivityCollector
+import com.example.c001apk.util.CookieUtil
+import com.example.c001apk.util.PrefManager
 import com.google.android.material.badge.BadgeDrawable
 import com.google.android.material.behavior.HideBottomViewOnScrollBehavior
 import com.google.android.material.bottomnavigation.BottomNavigationView
@@ -24,16 +27,17 @@ import com.google.android.material.navigation.NavigationBarView
 import dagger.hilt.android.AndroidEntryPoint
 
 @AndroidEntryPoint
-class MainActivity : BaseActivity<ActivityMainBinding>(), IOnBottomClickContainer,
-    INavViewContainer {
+class MainActivity : BaseActivity<ActivityMainBinding>(), IOnBottomClickContainer {
 
     private val viewModel by viewModels<MainViewModel>()
     private val navViewBehavior by lazy { HideBottomViewOnScrollBehavior<BottomNavigationView>() }
     override var controller: IOnBottomClickListener? = null
     private lateinit var navView: NavigationBarView
+    private val isLogin by lazy { PrefManager.isLogin }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        ActivityCollector.addActivity(this)
 
         navView = binding.bottomNav as NavigationBarView
 
@@ -43,7 +47,7 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), IOnBottomClickContaine
             viewModel.isInit = false
             genData()
             initObserve()
-        } else if (viewModel.badge != 0) {
+        } else if (CookieUtil.badge != 0) {
             setBadge()
         }
 
@@ -90,9 +94,8 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), IOnBottomClickContaine
 
                     R.id.navigation_message -> {
                         binding.viewPager.setCurrentItem(1, true)
-                        if (viewModel.badge != 0) {
+                        if (CookieUtil.badge != 0) {
                             navView.removeBadge(R.id.navigation_message)
-                            viewModel.badge = 0
                         }
                     }
 
@@ -126,14 +129,19 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), IOnBottomClickContaine
 
     private fun setBadge() {
         val badge = navView.getOrCreateBadge(R.id.navigation_message)
-        badge.number = viewModel.badge
+        badge.number = CookieUtil.badge
         badge.backgroundColor =
             MaterialColors.getColor(
                 this,
                 com.google.android.material.R.attr.colorPrimary,
                 0
             )
-        //badge.badgeTextColor = ContextCompat.getColor(this,R.color.design_default_color_error)
+        badge.badgeTextColor =
+            MaterialColors.getColor(
+                this,
+                com.google.android.material.R.attr.colorOnPrimary,
+                0
+            )
         badge.badgeGravity = BadgeDrawable.TOP_END
         badge.verticalOffset = 5
         badge.horizontalOffset = 5
@@ -149,14 +157,14 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), IOnBottomClickContaine
         }
     }
 
-    override fun showNavigationView() {
+    fun showNavigationView() {
         if (binding.bottomNav is BottomNavigationView) {
             if (navViewBehavior.isScrolledDown)
                 navViewBehavior.slideUp(binding.bottomNav as BottomNavigationView, true)
         }
     }
 
-    override fun hideNavigationView() {
+    fun hideNavigationView() {
         if (binding.bottomNav is BottomNavigationView) {
             if (navViewBehavior.isScrolledUp)
                 navViewBehavior.slideDown(binding.bottomNav as BottomNavigationView, true)
@@ -184,6 +192,23 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), IOnBottomClickContaine
         ViewCompat.setOnApplyWindowInsetsListener(view) { _, windowInsets ->
             /* Do nothing */
             windowInsets
+        }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        ActivityCollector.removeActivity(this)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (!viewModel.isInit && isLogin) {
+            with(System.currentTimeMillis()) {
+                if (this - viewModel.lastCheck >= 5 * 60 * 1000) {
+                    viewModel.lastCheck = this
+                    viewModel.onCheckCount()
+                }
+            }
         }
     }
 

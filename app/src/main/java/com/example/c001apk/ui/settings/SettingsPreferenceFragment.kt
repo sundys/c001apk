@@ -3,6 +3,7 @@ package com.example.c001apk.ui.settings
 import android.annotation.SuppressLint
 import android.content.DialogInterface
 import android.os.Bundle
+import android.util.TypedValue
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -18,11 +19,9 @@ import androidx.recyclerview.widget.RecyclerView
 import com.example.c001apk.BuildConfig
 import com.example.c001apk.R
 import com.example.c001apk.ui.blacklist.BlackListActivity
-import com.example.c001apk.ui.main.INavViewContainer
 import com.example.c001apk.ui.main.MainActivity
 import com.example.c001apk.ui.others.AboutActivity
 import com.example.c001apk.ui.settings.params.ParamsActivity
-import com.example.c001apk.util.ActivityCollector
 import com.example.c001apk.util.CacheDataManager
 import com.example.c001apk.util.IntentUtil
 import com.example.c001apk.util.PrefManager
@@ -54,9 +53,9 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
                 override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
                     super.onScrolled(recyclerView, dx, dy)
                     if (dy > 0) {
-                        (activity as? INavViewContainer)?.hideNavigationView()
+                        (activity as? MainActivity)?.hideNavigationView()
                     } else if (dy < 0) {
-                        (activity as? INavViewContainer)?.showNavigationView()
+                        (activity as? MainActivity)?.showNavigationView()
                     }
                 }
             })
@@ -189,9 +188,11 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
                     PrefManager.SZLMID = editText.text.toString()
                     PrefManager.xAppDevice = getDeviceCode(false)
                 }
-                setNeutralButton(R.string.random_value) { _, _ ->
-                    PrefManager.SZLMID = randHexString(16)
-                    PrefManager.xAppDevice = getDeviceCode(false)
+                if (BuildConfig.DEBUG) {
+                    setNeutralButton(R.string.random_value) { _, _ ->
+                        PrefManager.SZLMID = randHexString(16)
+                        PrefManager.xAppDevice = getDeviceCode(false)
+                    }
                 }
             }.create().apply {
                 window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE)
@@ -229,21 +230,21 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat() {
             }
             slider.addOnChangeListener { _, value, _ ->
                 fontScale.text = "字体大小: ${String.format("%.2f", value)}"
-                fontScale.textSize = 16f * value
+                fontScale.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f * value)
             }
             fontScale.text = "字体大小: ${PrefManager.FONTSCALE}"
-            fontScale.textSize = 16f * PrefManager.FONTSCALE.toFloat()
+            fontScale.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f * PrefManager.FONTSCALE.toFloat())
             MaterialAlertDialogBuilder(requireContext()).apply {
                 setView(view)
                 setTitle(R.string.font_scale)
                 setNegativeButton(android.R.string.cancel, null)
                 setNeutralButton("重置") { _, _ ->
                     PrefManager.FONTSCALE = "1.00"
-                    ActivityCollector.recreateActivity(MainActivity::class.java.name)
+                    (requireActivity() as? MainActivity)?.recreate()
                 }
                 setPositiveButton(android.R.string.ok) { _, _ ->
                     PrefManager.FONTSCALE = String.format("%.2f", slider.value)
-                    ActivityCollector.recreateActivity(MainActivity::class.java.name)
+                    (requireActivity() as? MainActivity)?.recreate()
                 }
                 show()
             }

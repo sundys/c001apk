@@ -17,9 +17,14 @@ import com.example.c001apk.util.IntentUtil
 import com.example.c001apk.util.PrefManager
 
 
-class MessageThirdAdapter
-    : RecyclerView.Adapter<MessageThirdAdapter.ThirdViewHolder>() {
+class MessageThirdAdapter : RecyclerView.Adapter<MessageThirdAdapter.ThirdViewHolder>() {
 
+    private val messTitle = listOf("@我的动态", "@我的评论", "我收到的赞", "好友关注", "私信")
+    private val logoColorList = listOf("#2196f3", "#00bcd4", "#4caf50", "#f44336", "#ff9800")
+    private val logoList = listOf(
+        R.drawable.ic_at, R.drawable.ic_comment, R.drawable.ic_thumb,
+        R.drawable.ic_add, R.drawable.ic_message1
+    )
     private var badgeList: List<Int>? = null
 
     @SuppressLint("NotifyDataSetChanged")
@@ -30,42 +35,7 @@ class MessageThirdAdapter
         }
     }
 
-    private val messTitle = ArrayList<String>()
-    private val logoList = ArrayList<Int>()
-    private val logoColorList = ArrayList<String>()
-
-    init {
-        messTitle.apply {
-            add("@我的动态")
-            add("@我的评论")
-            add("我收到的赞")
-            add("好友关注")
-            add("私信")
-        }
-
-        logoColorList.apply {
-            add("#2196f3")
-            add("#00bcd4")
-            add("#4caf50")
-            add("#f44336")
-            add("#ff9800")
-        }
-
-        logoList.apply {
-            add(R.drawable.ic_at)
-            add(R.drawable.ic_comment)
-            add(R.drawable.ic_thumb)
-            add(R.drawable.ic_add)
-            add(R.drawable.ic_message1)
-        }
-    }
-
-    class ThirdViewHolder(
-        val binding: ItemMessageMessBinding,
-        private val messTitle: List<String>,
-        private val logoList: List<Int>,
-        private val logoColorList: List<String>
-    ) :
+    class ThirdViewHolder(val binding: ItemMessageMessBinding) :
         RecyclerView.ViewHolder(binding.root) {
 
         init {
@@ -102,16 +72,11 @@ class MessageThirdAdapter
         }
 
         fun bind(badgeList: List<Int>?) {
-            binding.title.text = messTitle[bindingAdapterPosition]
-            binding.logoCover.setBackgroundColor(Color.parseColor(logoColorList[bindingAdapterPosition]))
-            binding.logo.setBackgroundDrawable(itemView.context.getDrawable(logoList[bindingAdapterPosition]))
             if (!badgeList.isNullOrEmpty())
                 badgeList.let {
                     if (it[bindingAdapterPosition] > 0) {
                         binding.badge.isVisible = true
-                        binding.badge.text =
-                            if (it[bindingAdapterPosition] > 99) "99+"
-                            else it[bindingAdapterPosition].toString()
+                        binding.badge.text = it[bindingAdapterPosition].toString()
                     } else
                         binding.badge.isVisible = false
                 }
@@ -119,11 +84,15 @@ class MessageThirdAdapter
         }
     }
 
-    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ThirdViewHolder {
-        return ThirdViewHolder(
-            ItemMessageMessBinding.inflate(LayoutInflater.from(parent.context), parent, false),
-            messTitle, logoList, logoColorList
-        )
+    override fun getItemViewType(position: Int) = position
+
+    override fun onCreateViewHolder(parent: ViewGroup, position: Int): ThirdViewHolder {
+        val binding =
+            ItemMessageMessBinding.inflate(LayoutInflater.from(parent.context), parent, false)
+        binding.title.text = messTitle[position]
+        binding.logoCover.setBackgroundColor(Color.parseColor(logoColorList[position]))
+        binding.logo.setBackgroundDrawable(parent.context.getDrawable(logoList[position]))
+        return ThirdViewHolder(binding)
     }
 
     override fun getItemCount() = 4

@@ -13,7 +13,6 @@ import androidx.core.view.isVisible
 import androidx.core.view.updateLayoutParams
 import androidx.fragment.app.viewModels
 import androidx.recyclerview.widget.ConcatAdapter
-import com.absinthe.libraries.utils.extensions.dp
 import com.example.c001apk.R
 import com.example.c001apk.adapter.HeaderAdapter
 import com.example.c001apk.adapter.PlaceHolderAdapter
@@ -22,10 +21,11 @@ import com.example.c001apk.ui.appupdate.AppUpdateActivity
 import com.example.c001apk.ui.base.BaseViewFragment
 import com.example.c001apk.ui.home.IOnTabClickContainer
 import com.example.c001apk.ui.home.IOnTabClickListener
-import com.example.c001apk.ui.main.INavViewContainer
 import com.example.c001apk.ui.main.IOnBottomClickContainer
 import com.example.c001apk.ui.main.IOnBottomClickListener
+import com.example.c001apk.ui.main.MainActivity
 import com.example.c001apk.util.IntentUtil
+import com.example.c001apk.util.dp
 import com.example.c001apk.util.setSpaceFooterView
 import com.google.android.material.behavior.HideBottomViewOnScrollBehavior
 import com.google.android.material.floatingactionbutton.FloatingActionButton
@@ -37,7 +37,7 @@ class AppListFragment : BaseViewFragment<AppListViewModel>(), IOnTabClickListene
 
     override val viewModel by viewModels<AppListViewModel>()
     private lateinit var appsAdapter: AppListAdapter
-    private val placeHolderAdapter = PlaceHolderAdapter()
+    private val placeHolderAdapter by lazy { PlaceHolderAdapter() }
     private lateinit var fab: FloatingActionButton
     private val fabViewBehavior by lazy { HideBottomViewOnScrollBehavior<FloatingActionButton>() }
 
@@ -106,12 +106,9 @@ class AppListFragment : BaseViewFragment<AppListViewModel>(), IOnTabClickListene
         }
         ViewCompat.setOnApplyWindowInsetsListener(fab) { _, insets ->
             val navigationBars = insets.getInsets(WindowInsetsCompat.Type.navigationBars())
-            fab.updateLayoutParams<CoordinatorLayout.LayoutParams> {
+            fab.updateLayoutParams<ViewGroup.MarginLayoutParams> {
                 rightMargin = 25.dp
-                bottomMargin =
-                    if (isPortrait)
-                        navigationBars.bottom + 105.dp
-                    else 25.dp
+                bottomMargin = navigationBars.bottom + if (isPortrait) 105.dp else 25.dp
             }
             insets
         }
@@ -119,9 +116,9 @@ class AppListFragment : BaseViewFragment<AppListViewModel>(), IOnTabClickListene
 
     override fun onScrolled(dy: Int) {
         if (dy > 0) {
-            (activity as? INavViewContainer)?.hideNavigationView()
+            (activity as? MainActivity)?.hideNavigationView()
         } else if (dy < 0) {
-            (activity as? INavViewContainer)?.showNavigationView()
+            (activity as? MainActivity)?.showNavigationView()
         }
     }
 
@@ -143,6 +140,8 @@ class AppListFragment : BaseViewFragment<AppListViewModel>(), IOnTabClickListene
     }
 
     override fun onReturnTop(isRefresh: Boolean?) {
+        if (fabViewBehavior.isScrolledDown)
+            fabViewBehavior.slideUp(fab, true)
         binding.swipeRefresh.isRefreshing = true
         binding.recyclerView.scrollToPosition(0)
         refreshData()

@@ -1,20 +1,16 @@
 package com.example.c001apk.adapter
 
-import android.annotation.SuppressLint
 import android.graphics.Color
 import android.graphics.drawable.Drawable
 import android.text.Html
-import android.text.method.LinkMovementMethod
 import android.view.LayoutInflater
-import android.view.View
-import android.view.ViewGroup
-import android.widget.BaseAdapter
 import android.widget.ImageView
+import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.constraintlayout.widget.ConstraintLayout
+import androidx.core.text.method.LinkMovementMethodCompat
 import androidx.core.view.isVisible
 import androidx.databinding.BindingAdapter
-import com.absinthe.libraries.utils.extensions.dp
 import com.example.c001apk.R
 import com.example.c001apk.logic.model.FeedArticleContentBean
 import com.example.c001apk.logic.model.HomeFeedResponse
@@ -22,10 +18,11 @@ import com.example.c001apk.util.ImageUtil
 import com.example.c001apk.util.NetWorkUtil
 import com.example.c001apk.util.PrefManager
 import com.example.c001apk.util.SpannableStringBuilderUtil
-import com.example.c001apk.view.LinearAdapterLayout
+import com.example.c001apk.util.dp
 import com.example.c001apk.view.LinkTextView
 import com.example.c001apk.view.ninegridimageview.NineGridImageView
 import com.google.android.material.color.MaterialColors
+import com.google.android.material.imageview.ShapeableImageView
 
 @BindingAdapter("setExtraPic")
 fun setExtraPic(imageView: ImageView, extraPic: String?) {
@@ -42,7 +39,7 @@ fun setExtraPic(imageView: ImageView, extraPic: String?) {
             link?.setTint(
                 MaterialColors.getColor(
                     imageView.context,
-                    android.R.attr.windowBackground,
+                    com.google.android.material.R.attr.colorOnPrimary,
                     0
                 )
             )
@@ -100,14 +97,15 @@ fun setArticleImage(
 
 @BindingAdapter(value = ["targetRow", "relationRows", "isFeedContent"], requireAll = true)
 fun setRows(
-    linearAdapterLayout: LinearAdapterLayout,
+    linearLayout: LinearLayout,
     targetRow: HomeFeedResponse.TargetRow?,
     relationRows: ArrayList<HomeFeedResponse.RelationRows>?,
     isFeedContent: Boolean?
 ) {
+    linearLayout.removeAllViews()
     relationRows?.let {
         val dataList = it.toMutableList()
-        if (targetRow?.id != null) {
+        targetRow?.id?.let {
             dataList.add(
                 0,
                 HomeFeedResponse.RelationRows(
@@ -119,54 +117,38 @@ fun setRows(
                 )
             )
         }
-
-        linearAdapterLayout.adapter = object : BaseAdapter() {
-            override fun getCount(): Int =
-                if (targetRow?.id == null) it.size
-                else 1 + it.size
-
-            override fun getItem(p0: Int): Any = 0
-
-            override fun getItemId(p0: Int): Long = 0
-
-            @SuppressLint("ViewHolder")
-            override fun getView(
-                position: Int,
-                convertView: View?,
-                parent: ViewGroup
-            ): View {
-                val view = LayoutInflater.from(parent.context).inflate(
-                    R.layout.item_home_icon_mini_scroll_card_item,
-                    parent,
-                    false
-                )
-                if (isFeedContent == true)
-                    view.background = parent.context.getDrawable(R.drawable.round_corners_20)
-                val logo: ImageView = view.findViewById(R.id.iconMiniScrollCard)
-                val title: TextView = view.findViewById(R.id.title)
-                if (position != 0) {
-                    val layoutParams = ConstraintLayout.LayoutParams(
-                        ConstraintLayout.LayoutParams.WRAP_CONTENT,
-                        ConstraintLayout.LayoutParams.WRAP_CONTENT
-                    )
-                    layoutParams.setMargins(5.dp, 0, 0, 0)
-                    view.layoutParams = layoutParams
+        val context = linearLayout.context
+        dataList.forEachIndexed { index, relationRows ->
+            val view = LayoutInflater.from(context).inflate(
+                R.layout.item_home_icon_mini_scroll_card_item, linearLayout, false
+            )
+            if (isFeedContent == true)
+                view.background = context.getDrawable(R.drawable.round_corners_20)
+            if (index != 0) {
+                view.layoutParams = ConstraintLayout.LayoutParams(
+                    ConstraintLayout.LayoutParams.WRAP_CONTENT,
+                    ConstraintLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    setMargins(5.dp, 0, 0, 0)
                 }
-                title.text = dataList[position].title
-                ImageUtil.showIMG(logo, dataList[position].logo)
-
-                view.setOnClickListener {
-                    NetWorkUtil.openLinkDyh(
-                        dataList[position].entityType,
-                        parent.context,
-                        dataList[position].url,
-                        dataList[position].id,
-                        title.text.toString()
-                    )
-                }
-                return view
             }
+            view.findViewById<TextView>(R.id.title).text = relationRows.title
+            ImageUtil.showIMG(
+                view.findViewById<ShapeableImageView>(R.id.iconMiniScrollCard), relationRows.logo
+            )
+
+            view.setOnClickListener {
+                NetWorkUtil.openLinkDyh(
+                    relationRows.entityType,
+                    context,
+                    relationRows.url,
+                    relationRows.id,
+                    relationRows.title
+                )
+            }
+            linearLayout.addView(view)
         }
+
     }
 }
 
@@ -252,28 +234,17 @@ fun setCustomText(
 }
 
 @BindingAdapter("setHotReply")
-fun setHotReply(hotReply: TextView, feed: HomeFeedResponse.Data?) {
-    if (feed != null) {
-        if (!feed.replyRows.isNullOrEmpty()) {
-            hotReply.isVisible = true
-            hotReply.highlightColor = Color.TRANSPARENT
-            val mess =
-                if (feed.replyRows[0].picArr.isNullOrEmpty())
-                    "<a class=\"feed-link-uname\" href=\"/u/${feed.replyRows[0].uid}\">${feed.replyRows[0].userInfo?.username}</a>: ${feed.replyRows[0].message}"
-                else if (feed.replyRows[0].message == "[图片]")
-                    "<a class=\"feed-link-uname\" href=\"/u/${feed.replyRows[0].uid}\">${feed.replyRows[0].userInfo?.username}</a>: ${feed.replyRows[0].message} <a class=\"feed-forward-pic\" href=${feed.replyRows[0].pic}>查看图片(${feed.replyRows[0].picArr?.size})</a>"
-                else
-                    "<a class=\"feed-link-uname\" href=\"/u/${feed.replyRows[0].uid}\">${feed.replyRows[0].userInfo?.username}</a>: ${feed.replyRows[0].message} [图片] <a class=\"feed-forward-pic\" href=${feed.replyRows[0].pic}>查看图片(${feed.replyRows[0].picArr?.size})</a>"
-            hotReply.movementMethod = LinkMovementMethod.getInstance()
-            hotReply.text = SpannableStringBuilderUtil.setText(
-                hotReply.context,
-                mess,
-                hotReply.textSize,
-                feed.replyRows[0].picArr
-            )
-            SpannableStringBuilderUtil.isReturn = true
-        } else
-            hotReply.isVisible = false
+fun setHotReply(hotReply: TextView, replyRow: HomeFeedResponse.ReplyRows?) {
+    if (replyRow != null) {
+        hotReply.isVisible = true
+        hotReply.highlightColor = Color.TRANSPARENT
+        hotReply.movementMethod = LinkMovementMethodCompat.getInstance()
+        hotReply.text = SpannableStringBuilderUtil.setText(
+            hotReply.context,
+            replyRow.message.toString(),
+            hotReply.textSize,
+            replyRow.picArr
+        )
     } else
         hotReply.isVisible = false
 }

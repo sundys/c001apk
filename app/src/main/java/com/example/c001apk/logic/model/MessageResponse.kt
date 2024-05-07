@@ -1,6 +1,8 @@
 package com.example.c001apk.logic.model
 
+import android.os.Parcelable
 import com.google.gson.annotations.SerializedName
+import kotlinx.parcelize.Parcelize
 
 data class MessageResponse(
     val status: Int?,
@@ -11,6 +13,7 @@ data class MessageResponse(
 ) {
 
     data class Data(
+        val rid: Long?,
         val infoHtml: String?,
         val entityType: String,
         val id: String,
@@ -54,6 +57,7 @@ data class MessageResponse(
         val url: String
     )
 
+    @Parcelize
     data class ForwardSourceFeed(
         val entityType: String,
         val feedType: String,
@@ -64,6 +68,6 @@ data class MessageResponse(
         @SerializedName("message_title") val messageTitle: String,
         val pic: String,
         val picArr: List<String>?,
-    )
+    ): Parcelable
 }
 

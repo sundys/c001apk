@@ -7,10 +7,8 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import androidx.viewbinding.ViewBinding
 import com.example.c001apk.R
-import com.example.c001apk.util.ActivityCollector
 import com.example.c001apk.util.PrefManager
 import com.example.c001apk.util.ThemeUtils
-import com.google.android.material.color.DynamicColors
 import rikka.material.app.MaterialActivity
 import java.lang.reflect.ParameterizedType
 
@@ -20,7 +18,6 @@ abstract class BaseActivity<VB : ViewBinding> : MaterialActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        ActivityCollector.addActivity(this)
         val type = javaClass.genericSuperclass as ParameterizedType
         val aClass = type.actualTypeArguments[0] as Class<*>
         val method = aClass.getDeclaredMethod("inflate", LayoutInflater::class.java)
@@ -35,11 +32,6 @@ abstract class BaseActivity<VB : ViewBinding> : MaterialActivity() {
         super.attachBaseContext(newBase.createConfigurationContext(configuration))
     }
 
-    override fun onDestroy() {
-        super.onDestroy()
-        ActivityCollector.removeActivity(this)
-    }
-
     override fun computeUserThemeKey() =
         ThemeUtils.colorTheme + ThemeUtils.getNightThemeStyleRes(this)
 
@@ -50,9 +42,7 @@ abstract class BaseActivity<VB : ViewBinding> : MaterialActivity() {
     }
 
     override fun onApplyUserThemeResource(theme: Resources.Theme, isDecorView: Boolean) {
-        if (ThemeUtils.isSystemAccent)
-            DynamicColors.applyToActivityIfAvailable(this)
-        else
+        if (!ThemeUtils.isSystemAccent)
             theme.applyStyle(ThemeUtils.colorThemeStyleRes, true)
         theme.applyStyle(ThemeUtils.getNightThemeStyleRes(this), true) //blackDarkMode
     }

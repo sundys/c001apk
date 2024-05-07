@@ -39,7 +39,9 @@ object NetWorkUtil {
     }
 
     fun openLink(context: Context, url: String, title: String?) {
-        val replace = url.replace("https://", "")
+        val replace = url
+            .replace("coolmarket://", "/")
+            .replace("https://", "")
             .replace("http://", "")
             .replace("www.", "")
             .replace("coolapk1s", "coolapk")
@@ -53,6 +55,14 @@ object NetWorkUtil {
                         if (this@with != -1) replace.substring(6, this@with)
                         else replace.substring(6)
                     )
+                    if (this@with != -1) {
+                        replace.indexOf("rid=").let {
+                            if (it != -1) {
+                                putExtra("rid", replace.substring(it + 4))
+                                putExtra("viewReply", true)
+                            }
+                        }
+                    }
                 }
             }
         } else if (replace.startsWith("/picture/")) {
@@ -125,6 +135,7 @@ object NetWorkUtil {
             }
         } else {
             Toast.makeText(context, "unsupported url: $url", Toast.LENGTH_SHORT).show()
+            ClipboardUtil.copyText(context, url, false)
         }
     }
 

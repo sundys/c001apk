@@ -11,11 +11,11 @@ import androidx.recyclerview.widget.ConcatAdapter
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import androidx.recyclerview.widget.StaggeredGridLayoutManager
-import com.absinthe.libraries.utils.extensions.dp
 import com.example.c001apk.R
 import com.example.c001apk.adapter.LoadingState
 import com.example.c001apk.constant.Constants.LOADING_EMPTY
 import com.example.c001apk.databinding.BaseRefreshRecyclerviewBinding
+import com.example.c001apk.util.dp
 import com.example.c001apk.view.LinearItemDecoration
 import com.example.c001apk.view.StaggerItemDecoration
 import com.google.android.material.color.MaterialColors
@@ -30,6 +30,7 @@ abstract class BaseViewFragment<VM : BaseViewModel> : Fragment() {
     private lateinit var mLayoutManager: LinearLayoutManager
     private lateinit var sLayoutManager: StaggeredGridLayoutManager
     val isPortrait by lazy { resources.configuration.orientation == Configuration.ORIENTATION_PORTRAIT }
+    var lastVisibleItemPosition = 0
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -93,14 +94,16 @@ abstract class BaseViewFragment<VM : BaseViewModel> : Fragment() {
                 )
             )
             setOnRefreshListener {
-                binding.swipeRefresh.isRefreshing = true
-                refreshData()
+                if (!viewModel.isLoadMore) {
+                    binding.swipeRefresh.isRefreshing = true
+                    refreshData()
+                }
             }
         }
     }
 
     fun refreshData() {
-        viewModel.lastVisibleItemPosition = 0
+        lastVisibleItemPosition = 0
         viewModel.lastItem = null
         viewModel.page = 1
         viewModel.isEnd = false
@@ -160,12 +163,12 @@ abstract class BaseViewFragment<VM : BaseViewModel> : Fragment() {
             override fun onScrollStateChanged(recyclerView: RecyclerView, newState: Int) {
                 super.onScrollStateChanged(recyclerView, newState)
                 if (newState == RecyclerView.SCROLL_STATE_IDLE) {
-                    viewModel.lastVisibleItemPosition = if (isPortrait)
+                    lastVisibleItemPosition = if (isPortrait)
                         mLayoutManager.findLastVisibleItemPosition()
                     else
                         sLayoutManager.findLastVisibleItemPositions(null).max()
 
-                    if (viewModel.lastVisibleItemPosition == viewModel.listSize + 1
+                    if (lastVisibleItemPosition + 1 == binding.recyclerView.adapter?.itemCount
                         && !viewModel.isEnd && !viewModel.isRefreshing && !viewModel.isLoadMore
                         && !binding.swipeRefresh.isRefreshing
                     ) {

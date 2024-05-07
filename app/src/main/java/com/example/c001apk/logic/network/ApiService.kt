@@ -1,12 +1,15 @@
 package com.example.c001apk.logic.network
 
+import com.example.c001apk.logic.model.CheckCountResponse
 import com.example.c001apk.logic.model.CheckResponse
 import com.example.c001apk.logic.model.CreateFeedResponse
 import com.example.c001apk.logic.model.FeedContentResponse
 import com.example.c001apk.logic.model.HomeFeedResponse
 import com.example.c001apk.logic.model.LikeFeedResponse
 import com.example.c001apk.logic.model.LikeReplyResponse
+import com.example.c001apk.logic.model.LoadUrlResponse
 import com.example.c001apk.logic.model.MessageResponse
+import com.example.c001apk.logic.model.OSSUploadPrepareResponse
 import com.example.c001apk.logic.model.PostReplyResponse
 import com.example.c001apk.logic.model.TotalReplyResponse
 import com.example.c001apk.logic.model.UpdateCheckResponse
@@ -217,7 +220,7 @@ interface ApiService {
     @POST("/v6/feed/createFeed")
     @FormUrlEncoded
     fun postCreateFeed(
-        @FieldMap data: HashMap<String, String?>
+        @FieldMap data: HashMap<String, String>
     ): Call<CreateFeedResponse>
 
     @POST("/v6/account/requestValidate")
@@ -275,5 +278,29 @@ interface ApiService {
         @Query("tag") tag: String?,
         @Query("id") id: String?,
     ): Call<LikeFeedResponse>
+
+    @POST("/v6/upload/ossUploadPrepare")
+    @FormUrlEncoded
+    fun postOSSUploadPrepare(
+        @FieldMap data: HashMap<String, String>
+    ): Call<OSSUploadPrepareResponse>
+
+    @GET("/v6/feed/searchTag")
+    fun getSearchTag(
+        @Query("q") query: String,
+        @Query("page") page: Int,
+        @Query("recentIds") recentIds: String?,
+        @Query("firstItem") firstItem: String?,
+        @Query("lastItem") lastItem: String?,
+    ): Call<HomeFeedResponse>
+
+    @GET("/v6/feed/loadShareUrl")
+    fun loadShareUrl(
+        @Query("url") url: String,
+        @Query("packageName") packageName: String = "",
+    ): Call<LoadUrlResponse>
+
+    @GET("/v6/notification/checkCount")
+    fun checkCount(): Call<CheckCountResponse>
 
 }

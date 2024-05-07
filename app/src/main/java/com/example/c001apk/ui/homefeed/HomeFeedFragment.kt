@@ -2,6 +2,7 @@ package com.example.c001apk.ui.homefeed
 
 import android.annotation.SuppressLint
 import android.content.DialogInterface
+import android.content.Intent
 import android.os.Build.VERSION.SDK_INT
 import android.os.Bundle
 import android.view.Gravity
@@ -10,31 +11,29 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.Toast
 import androidx.coordinatorlayout.widget.CoordinatorLayout
-import androidx.core.graphics.ColorUtils
+import androidx.core.app.ActivityOptionsCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.updateLayoutParams
 import androidx.fragment.app.viewModels
-import com.absinthe.libraries.utils.extensions.dp
 import com.example.c001apk.R
 import com.example.c001apk.adapter.FooterState
 import com.example.c001apk.adapter.LoadingState
+import com.example.c001apk.adapter.PlaceHolderAdapter
 import com.example.c001apk.constant.Constants.SZLM_ID
 import com.example.c001apk.databinding.BaseRefreshRecyclerviewBinding
-import com.example.c001apk.databinding.ItemCaptchaBinding
 import com.example.c001apk.ui.base.BaseAppFragment
-import com.example.c001apk.ui.feed.reply.IOnPublishClickListener
-import com.example.c001apk.ui.feed.reply.ReplyBottomSheetDialog
+import com.example.c001apk.ui.feed.reply.ReplyActivity
 import com.example.c001apk.ui.home.IOnTabClickContainer
 import com.example.c001apk.ui.home.IOnTabClickListener
-import com.example.c001apk.ui.main.INavViewContainer
 import com.example.c001apk.ui.main.IOnBottomClickContainer
 import com.example.c001apk.ui.main.IOnBottomClickListener
+import com.example.c001apk.ui.main.MainActivity
 import com.example.c001apk.util.PrefManager
 import com.example.c001apk.util.TokenDeviceUtils.getLastingInstallTime
+import com.example.c001apk.util.dp
+import com.example.c001apk.util.setSpaceFooterView
 import com.google.android.material.behavior.HideBottomViewOnScrollBehavior
-import com.google.android.material.bottomsheet.BottomSheetBehavior
-import com.google.android.material.color.MaterialColors
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.floatingactionbutton.FloatingActionButton
 import dagger.hilt.android.AndroidEntryPoint
@@ -42,7 +41,7 @@ import javax.inject.Inject
 
 @AndroidEntryPoint
 class HomeFeedFragment : BaseAppFragment<HomeFeedViewModel>(), IOnTabClickListener,
-    IOnBottomClickListener, IOnPublishClickListener {
+    IOnBottomClickListener {
 
     @Inject
     lateinit var viewModelAssistedFactory: HomeFeedViewModel.Factory
@@ -52,9 +51,9 @@ class HomeFeedFragment : BaseAppFragment<HomeFeedViewModel>(), IOnTabClickListen
             getLastingInstallTime(requireContext())
         )
     }
-    private lateinit var bottomSheetDialog: ReplyBottomSheetDialog
     private lateinit var fab: FloatingActionButton
     private val fabViewBehavior by lazy { HideBottomViewOnScrollBehavior<FloatingActionButton>() }
+    private val placeHolderAdapter by lazy { PlaceHolderAdapter() }
 
     companion object {
         @JvmStatic
@@ -124,6 +123,15 @@ class HomeFeedFragment : BaseAppFragment<HomeFeedViewModel>(), IOnTabClickListen
                 }
             }
         }
+
+    }
+
+    override fun initView() {
+        super.initView()
+
+        binding.vfContainer.setOnDisplayedChildChangedListener {
+            binding.recyclerView.setSpaceFooterView(placeHolderAdapter)
+        }
     }
 
     override fun initObserve() {
@@ -134,92 +142,41 @@ class HomeFeedFragment : BaseAppFragment<HomeFeedViewModel>(), IOnTabClickListen
                 Toast.makeText(requireContext(), it, Toast.LENGTH_SHORT).show()
             }
         }
-
-        viewModel.createDialog.observe(viewLifecycleOwner) { event ->
-            event?.getContentIfNotHandledOrReturnNull()?.let {
-                val binding = ItemCaptchaBinding.inflate(
-                    LayoutInflater.from(requireContext()), null, false
-                )
-                binding.captchaImg.setImageBitmap(it)
-                binding.captchaText.highlightColor = ColorUtils.setAlphaComponent(
-                    MaterialColors.getColor(
-                        requireContext(),
-                        com.google.android.material.R.attr.colorPrimaryDark,
-                        0
-                    ), 128
-                )
-                MaterialAlertDialogBuilder(requireContext()).apply {
-                    setView(binding.root)
-                    setTitle("captcha")
-                    setNegativeButton(android.R.string.cancel, null)
-                    setPositiveButton("验证并继续") { _, _ ->
-                        viewModel.requestValidateData = HashMap()
-                        viewModel.requestValidateData["type"] = "err_request_captcha"
-                        viewModel.requestValidateData["code"] = binding.captchaText.text.toString()
-                        viewModel.requestValidateData["mobile"] = ""
-                        viewModel.requestValidateData["idcard"] = ""
-                        viewModel.requestValidateData["name"] = ""
-                        viewModel.onPostRequestValidate()
-                    }
-                    show()
-                }
-            }
-        }
-
-        viewModel.closeSheet.observe(viewLifecycleOwner) { event ->
-            event?.getContentIfNotHandledOrReturnNull()?.let {
-                if (it && ::bottomSheetDialog.isInitialized && bottomSheetDialog.isShowing) {
-                    bottomSheetDialog.editText.text = null
-                    bottomSheetDialog.dismiss()
-                }
-            }
-        }
-
     }
 
     @SuppressLint("InflateParams")
     private fun initPublish() {
-        val view = LayoutInflater.from(context)
-            .inflate(R.layout.dialog_reply_bottom_sheet, null, false)
-        bottomSheetDialog = ReplyBottomSheetDialog(requireContext(), view)
-        bottomSheetDialog.apply {
-            setIOnPublishClickListener(this@HomeFeedFragment)
-            setContentView(view)
-            setCancelable(false)
-            setCanceledOnTouchOutside(true)
-            window?.apply {
-                behavior.state = BottomSheetBehavior.STATE_EXPANDED
-            }
-            type = "publish"
-        }
-
         fab.apply {
-            val lp = CoordinatorLayout.LayoutParams(
+            setImageResource(R.drawable.ic_add1)
+            layoutParams = CoordinatorLayout.LayoutParams(
                 CoordinatorLayout.LayoutParams.WRAP_CONTENT,
                 CoordinatorLayout.LayoutParams.WRAP_CONTENT
-            )
-            lp.gravity = Gravity.BOTTOM or Gravity.END
-            setImageResource(R.drawable.ic_add1)
-            layoutParams = lp
-            (this.layoutParams as CoordinatorLayout.LayoutParams).behavior = fabViewBehavior
+            ).apply {
+                gravity = Gravity.BOTTOM or Gravity.END
+                behavior = fabViewBehavior
+            }
             if (SDK_INT >= 26)
                 tooltipText = getString(R.string.publishFeed)
             setOnClickListener {
                 if (PrefManager.SZLMID == "") {
                     Toast.makeText(requireContext(), SZLM_ID, Toast.LENGTH_SHORT).show()
                 } else {
-                    bottomSheetDialog.show()
+                    val intent = Intent(requireContext(), ReplyActivity::class.java)
+                    intent.putExtra("type", "createFeed")
+                    val options = ActivityOptionsCompat.makeCustomAnimation(
+                        requireContext(),
+                        R.anim.anim_bottom_sheet_slide_up,
+                        R.anim.anim_bottom_sheet_slide_down
+                    )
+                    requireContext().startActivity(intent, options.toBundle())
                 }
             }
         }
         ViewCompat.setOnApplyWindowInsetsListener(fab) { _, insets ->
             val navigationBars = insets.getInsets(WindowInsetsCompat.Type.navigationBars())
-            fab.updateLayoutParams<CoordinatorLayout.LayoutParams> {
+            fab.updateLayoutParams<ViewGroup.MarginLayoutParams> {
                 rightMargin = 25.dp
-                bottomMargin =
-                    if (isPortrait)
-                        navigationBars.bottom + 105.dp
-                    else 25.dp
+                bottomMargin = navigationBars.bottom + if (isPortrait) 105.dp else 25.dp
             }
             insets
         }
@@ -227,9 +184,9 @@ class HomeFeedFragment : BaseAppFragment<HomeFeedViewModel>(), IOnTabClickListen
 
     override fun onScrolled(dy: Int) {
         if (dy > 0) {
-            (activity as? INavViewContainer)?.hideNavigationView()
+            (activity as? MainActivity)?.hideNavigationView()
         } else if (dy < 0) {
-            (activity as? INavViewContainer)?.showNavigationView()
+            (activity as? MainActivity)?.showNavigationView()
         }
     }
 
@@ -249,14 +206,15 @@ class HomeFeedFragment : BaseAppFragment<HomeFeedViewModel>(), IOnTabClickListen
         if (binding.swipeRefresh.isEnabled) {
             binding.recyclerView.stopScroll()
             if (isRefresh == true) {
+                if (viewModel.type == "feed" && fabViewBehavior.isScrolledDown)
+                    fabViewBehavior.slideUp(fab, true)
                 binding.recyclerView.scrollToPosition(0)
                 binding.swipeRefresh.isRefreshing = true
                 refreshData()
             } else if (viewModel.type == "follow") {
                 MaterialAlertDialogBuilder(requireContext()).apply {
                     setTitle("关注分组")
-                    val items =
-                        arrayOf("全部关注", "好友关注", "话题关注", "数码关注", "应用关注")
+                    val items = arrayOf("全部关注", "好友关注", "话题关注", "数码关注", "应用关注")
                     viewModel.position = when (PrefManager.FOLLOWTYPE) {
                         "all" -> 0
                         "circle" -> 1
@@ -277,22 +235,19 @@ class HomeFeedFragment : BaseAppFragment<HomeFeedViewModel>(), IOnTabClickListen
                             }
 
                             1 -> {
-                                viewModel.dataListUrl =
-                                    "/page?url=V9_HOME_TAB_FOLLOW&type=circle"
+                                viewModel.dataListUrl = "/page?url=V9_HOME_TAB_FOLLOW&type=circle"
                                 viewModel.dataListTitle = "好友关注"
                                 PrefManager.FOLLOWTYPE = "circle"
                             }
 
                             2 -> {
-                                viewModel.dataListUrl =
-                                    "/page?url=V9_HOME_TAB_FOLLOW&type=topic"
+                                viewModel.dataListUrl = "/page?url=V9_HOME_TAB_FOLLOW&type=topic"
                                 viewModel.dataListTitle = "话题关注"
                                 PrefManager.FOLLOWTYPE = "topic"
                             }
 
                             3 -> {
-                                viewModel.dataListUrl =
-                                    "/page?url=V9_HOME_TAB_FOLLOW&type=product"
+                                viewModel.dataListUrl = "/page?url=V9_HOME_TAB_FOLLOW&type=product"
                                 viewModel.dataListTitle = "数码关注"
                                 PrefManager.FOLLOWTYPE = "product"
                             }
@@ -312,16 +267,6 @@ class HomeFeedFragment : BaseAppFragment<HomeFeedViewModel>(), IOnTabClickListen
                 }
             }
         }
-    }
-
-    override fun onPublish(message: String, replyAndForward: String) {
-        viewModel.createFeedData = HashMap()
-        viewModel.createFeedData["id"] = ""
-        viewModel.createFeedData["message"] = message
-        viewModel.createFeedData["type"] = "feed"
-        viewModel.createFeedData["pic"] = ""
-        viewModel.createFeedData["status"] = "-1"
-        viewModel.onPostCreateFeed()
     }
 
     override fun onReturnTop() {

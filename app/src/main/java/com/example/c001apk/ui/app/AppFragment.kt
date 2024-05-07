@@ -1,5 +1,6 @@
 package com.example.c001apk.ui.app
 
+import android.app.ActivityOptions
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.net.Uri
@@ -14,6 +15,7 @@ import androidx.fragment.app.viewModels
 import com.example.c001apk.R
 import com.example.c001apk.databinding.BaseViewAppBinding
 import com.example.c001apk.ui.base.BasePagerFragment
+import com.example.c001apk.ui.feed.reply.ReplyActivity
 import com.example.c001apk.ui.search.SearchActivity
 import com.example.c001apk.util.ClipboardUtil
 import com.example.c001apk.util.ImageUtil
@@ -22,7 +24,6 @@ import com.example.c001apk.util.PrefManager
 import com.example.c001apk.util.ReplaceViewHelper
 import com.example.c001apk.util.Utils.downloadApk
 import com.example.c001apk.view.AppBarLayoutStateChangeListener
-import com.google.android.material.appbar.AppBarLayout
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import dagger.hilt.android.AndroidEntryPoint
 
@@ -42,6 +43,8 @@ class AppFragment : BasePagerFragment() {
         initApp()
         initAppBar()
         if (!viewModel.tabList.isNullOrEmpty()) {
+            if (PrefManager.isLogin)
+                initFab()
             initTabList()
             initView()
         } else if (!viewModel.errMsg.isNullOrEmpty()) {
@@ -52,6 +55,28 @@ class AppFragment : BasePagerFragment() {
             }
         }
         initObserve()
+    }
+
+    override fun initFab() {
+        super.initFab()
+
+        fab.setOnClickListener {
+            val intent = Intent(requireContext(), ReplyActivity::class.java)
+            intent.putExtra("type", "createFeed")
+            intent.putExtra("targetType", "apk")
+            intent.putExtra("targetId", "${1000000000 + (viewModel.appId?.toInt() ?: 4599)}")
+            val animationBundle = ActivityOptions.makeCustomAnimation(
+                context,
+                R.anim.anim_bottom_sheet_slide_up,
+                R.anim.anim_bottom_sheet_slide_down
+            ).toBundle()
+            requireContext().startActivity(intent, animationBundle)
+        }
+    }
+
+    override fun onTabReselectedExtra() {
+        if (fabBehavior.isScrolledDown)
+            fabBehavior.slideUp(fab, true)
     }
 
     private fun initObserve() {
@@ -155,16 +180,9 @@ class AppFragment : BasePagerFragment() {
 
     private fun initAppBar() {
         binding.appBar.addOnOffsetChangedListener(object : AppBarLayoutStateChangeListener() {
-            override fun onStateChanged(appBarLayout: AppBarLayout?, state: State?) {
-                when (state) {
-                    State.COLLAPSED -> appBinding.appLayout.visibility = View.INVISIBLE
-                    State.EXPANDED, State.INTERMEDIATE ->
-                        appBinding.appLayout.isVisible = true
-
-                    else -> appBinding.appLayout.visibility = View.INVISIBLE
-                }
+            override fun onScroll(percent: Float) {
+                appBinding.appLayout.alpha = percent
             }
-
         })
     }
 

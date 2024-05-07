@@ -28,6 +28,8 @@ abstract class BaseAppFragment<VM : BaseAppViewModel> : BaseViewFragment<VM>(),
         viewModel.dataList.observe(viewLifecycleOwner) {
             viewModel.listSize = it.size
             appAdapter.submitList(it)
+            if (binding.vfContainer.displayedChild != it.size)
+                binding.vfContainer.displayedChild = it.size
         }
 
     }
@@ -40,6 +42,7 @@ abstract class BaseAppFragment<VM : BaseAppViewModel> : BaseViewFragment<VM>(),
 
     inner class ReloadListener : FooterAdapter.FooterListener {
         override fun onReLoad() {
+            viewModel.isEnd = false
             loadMore()
         }
     }

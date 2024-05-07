@@ -1,6 +1,7 @@
 package com.example.c001apk.util
 
 import android.annotation.SuppressLint
+import android.content.ContentResolver
 import android.content.ContentValues
 import android.content.Context
 import android.content.DialogInterface
@@ -19,6 +20,7 @@ import android.widget.ImageView
 import android.widget.Toast
 import androidx.core.content.FileProvider
 import androidx.core.view.isVisible
+import androidx.exifinterface.media.ExifInterface
 import androidx.fragment.app.FragmentActivity
 import com.bumptech.glide.Glide
 import com.bumptech.glide.load.engine.DiskCacheStrategy
@@ -51,7 +53,9 @@ import java.io.BufferedInputStream
 import java.io.File
 import java.io.FileInputStream
 import java.io.IOException
+import java.io.InputStream
 import java.io.OutputStream
+import java.security.MessageDigest
 
 
 object ImageUtil {
@@ -62,14 +66,14 @@ object ImageUtil {
 
     @SuppressLint("CheckResult")
     fun showIMG(view: ImageView, url: String?, isCover: Boolean = false) {
-        url?.let {
+        if (!url.isNullOrEmpty()) {
             val newUrl = GlideUrl(
-                it.http2https,
+                url.http2https,
                 LazyHeaders.Builder().addHeader("User-Agent", USER_AGENT).build()
             )
             Glide
                 .with(view).apply {
-                    if (it.endsWith(".gif"))
+                    if (url.endsWith(".gif"))
                         asGif()
                 }
                 .load(newUrl).apply {
@@ -136,7 +140,7 @@ object ImageUtil {
             success
         }
 
-    private fun saveImage(context: Context, url: String, isEnd: Boolean) {
+    private suspend fun saveImage(context: Context, url: String, isEnd: Boolean) {
         val index = url.lastIndexOf('/')
         filename = url.substring(index + 1)
         imagesDir = File(
@@ -149,7 +153,9 @@ object ImageUtil {
         )
         if (imageCheckDir.exists()) {
             if (isEnd)
-                ToastUtil.toast(context, "文件已存在")
+                withContext(Dispatchers.Main) {
+                    context.makeToast("文件已存在")
+                }
         } else {
             downloadPicture(context, url.http2https, filename, isEnd)
         }
@@ -206,7 +212,9 @@ object ImageUtil {
                                     )
                                 }
                             } else {
-                                ToastUtil.toast(context, "分享失败")
+                                withContext(Dispatchers.Main) {
+                                    context.makeToast("分享失败")
+                                }
                             }
                         }
                     }
@@ -399,25 +407,6 @@ object ImageUtil {
         context.startActivity(Intent.createChooser(intent, title))
     }
 
-    private fun shareVideo(context: Context, file: File, title: String?) {
-        val contentUri = getFileProvider(context, file)
-        val intent = Intent(Intent.ACTION_SEND)
-        intent.type = "video/*"
-        intent.putExtra(Intent.EXTRA_STREAM, contentUri)
-        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        context.startActivity(Intent.createChooser(intent, title))
-    }
-
-    private fun shareFile(context: Context, file: File, title: String?) {
-        val contentUri = getFileProvider(context, file)
-        val intent = Intent(Intent.ACTION_SEND)
-        intent.type = "*/*"
-        intent.putExtra(Intent.EXTRA_STREAM, contentUri)
-        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        context.startActivity(Intent.createChooser(intent, title))
-    }
-
-
     private fun downloadPicture(context: Context, url: String?, fileName: String, isEnd: Boolean) {
         val newUrl = GlideUrl(
             url?.http2https,
@@ -526,6 +515,81 @@ object ImageUtil {
             imgHeight = url.substring(x + 1, dot).toInt()
         }
         return Pair(imgWidth, imgHeight)
+    }
+
+    fun ByteArray.toHex(): String {
+        val hexString = StringBuilder()
+        for (byte in this) {
+            hexString.append(String.format("%02x", byte))
+        }
+        return hexString.toString()
+    }
+
+    fun getImageDimensionsAndMD5(
+        contentResolver: ContentResolver,
+        uri: Uri
+    ): Pair<Triple<Int, Int, String>?, ByteArray?> {
+        var dimensions: Triple<Int, Int, String>? = null
+        var md5Hash: ByteArray? = null
+
+        try {
+            dimensions = contentResolver.openInputStream(uri)?.use { inputStream ->
+                val options = BitmapFactory.Options().apply {
+                    inJustDecodeBounds = true
+                }
+                BitmapFactory.decodeStream(inputStream, null, options)
+                var width = options.outWidth
+                var height = options.outHeight
+                with(getRotation(contentResolver, uri)) {
+                    if (this == 90 || this == 270) {
+                        width = height.apply {
+                            height = width
+                        }
+                    }
+                }
+                Triple(width, height, options.outMimeType)
+            }
+            md5Hash = contentResolver.openInputStream(uri)?.use { inputStream ->
+                calculateMD5(inputStream)
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return Pair(dimensions, md5Hash)
+    }
+
+    private fun getRotation(
+        contentResolver: ContentResolver,
+        uri: Uri
+    ): Int {
+        var rotation = 0
+        try {
+            val exif = contentResolver.openInputStream(uri)?.let { ExifInterface(it) }
+            val orientation = exif?.getAttributeInt(
+                ExifInterface.TAG_ORIENTATION,
+                ExifInterface.ORIENTATION_NORMAL
+            )
+            rotation = when (orientation) {
+                ExifInterface.ORIENTATION_ROTATE_90 -> 90
+                ExifInterface.ORIENTATION_ROTATE_180 -> 180
+                ExifInterface.ORIENTATION_ROTATE_270 -> 270
+                else -> 0
+            }
+        } catch (e: IOException) {
+            e.printStackTrace()
+        }
+        return rotation
+    }
+
+    private fun calculateMD5(input: InputStream): ByteArray {
+        val md = MessageDigest.getInstance("MD5")
+        val buffer = ByteArray(8192)
+        var bytesRead = input.read(buffer)
+        while (bytesRead > 0) {
+            md.update(buffer, 0, bytesRead)
+            bytesRead = input.read(buffer)
+        }
+        return md.digest()
     }
 
 }

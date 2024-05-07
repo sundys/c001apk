@@ -1,8 +1,5 @@
 package com.example.c001apk.ui.homefeed
 
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -53,9 +50,6 @@ class HomeFeedViewModel @AssistedInject constructor(
     var type: String? = null
     private var firstLaunch = 1
     private var firstItem: String? = null
-
-    val closeSheet = MutableLiveData<Event<Boolean>>()
-    val createDialog = MutableLiveData<Event<Bitmap>>()
 
     override fun fetchData() {
         when (type) {
@@ -112,6 +106,7 @@ class HomeFeedViewModel @AssistedInject constructor(
                                         loadingState.postValue(LoadingState.LoadingDone)
                                     else
                                         footerState.postValue(FooterState.LoadingDone)
+                                    isRefreshing = false
                                     return@collect
                                 } else {
                                     currentList.clear()
@@ -126,9 +121,20 @@ class HomeFeedViewModel @AssistedInject constructor(
                                             "imageCarouselCard_1" -> {
                                                 it.entities = it.entities?.filterNot { item ->
                                                     item.url.startsWith("http")
-                                                }
-                                                if (!it.entities.isNullOrEmpty())
+                                                }?.toMutableList()
+                                                if (!it.entities.isNullOrEmpty()) {
+                                                    if ((it.entities?.size ?: 0) > 1) {
+                                                        it.entities?.last()?.let { item ->
+                                                            it.entities?.add(0, item)
+                                                        }
+                                                        it.entities?.getOrNull(1)?.let { item ->
+                                                            it.entities?.add(
+                                                                it.entities?.size ?: 0, item
+                                                            )
+                                                        }
+                                                    }
                                                     currentList.add(it)
+                                                }
                                             }
 
                                             "iconMiniScrollCard" -> {
@@ -140,7 +146,7 @@ class HomeFeedViewModel @AssistedInject constructor(
                                                             "topic", "product"
                                                         ))
                                                                 && !blackListRepo.checkTopic(item.title)
-                                                    }
+                                                    }?.toMutableList()
                                                     if (!it.entities.isNullOrEmpty())
                                                         currentList.add(it)
                                                 }
@@ -150,7 +156,7 @@ class HomeFeedViewModel @AssistedInject constructor(
                                                 it.entities = it.entities?.filter { item ->
                                                     item.entityType == "feed"
                                                             && !blackListRepo.checkUid(item.userInfo.uid)
-                                                }
+                                                }?.toMutableList()
                                                 if (!it.entities.isNullOrEmpty())
                                                     currentList.add(it)
                                             }
@@ -169,8 +175,25 @@ class HomeFeedViewModel @AssistedInject constructor(
                                                     it.tags + it.ttitle +
                                                             it.relationRows?.getOrNull(0)?.title
                                                 )
-                                            )
+                                            ) {
+                                                // hot reply
+                                                if (!it.replyRows.isNullOrEmpty()) {
+                                                    if (!blackListRepo.checkUid(
+                                                            it.replyRows?.getOrNull(0)?.uid.toString()
+                                                        )
+                                                    ) {
+                                                        it.replyRows?.getOrNull(0)?.let { reply ->
+                                                            val pic =
+                                                                if (reply.picArr.isNullOrEmpty()) ""
+                                                                else " ${if (reply.message == "[图片]") "" else "[图片] "}<a class=\"feed-forward-pic\" href=${reply.pic}>查看图片(${reply.picArr.size})</a>"
+
+                                                            reply.message =
+                                                                "<a class=\"feed-link-uname\" href=\"/u/${reply.uid}\">${reply.userInfo?.username}</a>: ${reply.message}$pic"
+                                                        }
+                                                    } else it.replyRows = null
+                                                }
                                                 currentList.add(it)
+                                            }
                                         }
 
                                         else -> return@forEach
@@ -252,7 +275,7 @@ class HomeFeedViewModel @AssistedInject constructor(
                                             "imageSquareScrollCard" -> {
                                                 it.entities = it.entities?.filter { item ->
                                                     item.entityType == "picCategory"
-                                                }
+                                                }?.toMutableList()
                                                 if (!it.entities.isNullOrEmpty())
                                                     currentList.add(it)
                                             }
@@ -266,7 +289,7 @@ class HomeFeedViewModel @AssistedInject constructor(
                                                             "topic", "product"
                                                         ))
                                                                 && !blackListRepo.checkTopic(item.title)
-                                                    }
+                                                    }?.toMutableList()
                                                     if (!it.entities.isNullOrEmpty())
                                                         currentList.add(it)
                                                 }
@@ -320,72 +343,6 @@ class HomeFeedViewModel @AssistedInject constructor(
                     }
                     isRefreshing = false
                     isLoadMore = false
-                }
-        }
-    }
-
-    lateinit var createFeedData: HashMap<String, String?>
-    fun onPostCreateFeed() {
-        viewModelScope.launch(Dispatchers.IO) {
-            networkRepo.postCreateFeed(createFeedData)
-                .collect { result ->
-                    val response = result.getOrNull()
-                    if (response != null) {
-                        if (response.data?.id != null) {
-                            toastText.postValue(Event("发布成功"))
-                            closeSheet.postValue(Event(true))
-                        } else {
-                            response.message?.let {
-                                toastText.postValue(Event(it))
-                            }
-                            if (response.messageStatus == "err_request_captcha") {
-                                onGetValidateCaptcha()
-                            }
-                        }
-                    } else {
-                        toastText.postValue(Event("response is null"))
-                    }
-                }
-        }
-    }
-
-    private fun onGetValidateCaptcha() {
-        viewModelScope.launch(Dispatchers.IO) {
-            networkRepo.getValidateCaptcha("/v6/account/captchaImage?${System.currentTimeMillis() / 1000}&w=270=&h=113")
-                .collect { result ->
-                    val response = result.getOrNull()
-                    response?.let {
-                        val responseBody = response.body()
-                        val bitmap = BitmapFactory.decodeStream(responseBody?.byteStream())
-                        createDialog.postValue(Event(bitmap))
-                    }
-                }
-        }
-    }
-
-    lateinit var requestValidateData: HashMap<String, String?>
-    fun onPostRequestValidate() {
-        viewModelScope.launch(Dispatchers.IO) {
-            networkRepo.postRequestValidate(requestValidateData)
-                .collect { result ->
-                    val response = result.getOrNull()
-                    response?.let {
-                        if (response.data != null) {
-                            response.data.let {
-                                toastText.postValue(Event(it))
-                            }
-                            if (response.data == "验证通过") {
-                                onPostCreateFeed()
-                            }
-                        } else if (response.message != null) {
-                            response.message.let {
-                                toastText.postValue(Event(it))
-                            }
-                            if (response.message == "请输入正确的图形验证码") {
-                                onGetValidateCaptcha()
-                            }
-                        }
-                    }
                 }
         }
     }

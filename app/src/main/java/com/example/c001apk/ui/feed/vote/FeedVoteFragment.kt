@@ -8,7 +8,6 @@ import androidx.fragment.app.viewModels
 import androidx.recyclerview.widget.ConcatAdapter
 import androidx.recyclerview.widget.RecyclerView
 import androidx.recyclerview.widget.StaggeredGridLayoutManager
-import com.absinthe.libraries.utils.extensions.dp
 import com.example.c001apk.R
 import com.example.c001apk.adapter.FooterAdapter
 import com.example.c001apk.adapter.FooterState
@@ -21,6 +20,7 @@ import com.example.c001apk.ui.feed.FeedDataAdapter
 import com.example.c001apk.ui.feed.FeedReplyAdapter
 import com.example.c001apk.ui.feed.FeedViewModel
 import com.example.c001apk.util.IntentUtil
+import com.example.c001apk.util.dp
 import com.example.c001apk.view.VoteStaggerItemDecoration
 import com.google.android.material.color.MaterialColors
 
@@ -71,10 +71,10 @@ class FeedVoteFragment : BaseFragment<FragmentFeedVoteBinding>() {
             override fun onScrollStateChanged(recyclerView: RecyclerView, newState: Int) {
                 super.onScrollStateChanged(recyclerView, newState)
                 if (newState == RecyclerView.SCROLL_STATE_IDLE) {
-                    viewModel.lastVisibleItemPosition =
+                    lastVisibleItemPosition =
                         sLayoutManager.findLastVisibleItemPositions(null).max()
 
-                    if (viewModel.lastVisibleItemPosition == viewModel.listSize + viewModel.itemCount
+                    if (lastVisibleItemPosition + 1 == binding.recyclerView.adapter?.itemCount
                         && !viewModel.isEnd && !viewModel.isRefreshing && !viewModel.isLoadMore
                     ) {
                         loadMore()
@@ -99,7 +99,10 @@ class FeedVoteFragment : BaseFragment<FragmentFeedVoteBinding>() {
                 )
             )
             setOnRefreshListener {
-                refreshData()
+                if (!viewModel.isLoadMore) {
+                    binding.swipeRefresh.isRefreshing = true
+                    refreshData()
+                }
             }
         }
     }
@@ -123,7 +126,7 @@ class FeedVoteFragment : BaseFragment<FragmentFeedVoteBinding>() {
     }
 
     private fun refreshData() {
-        viewModel.lastVisibleItemPosition = 0
+        lastVisibleItemPosition = 0
         viewModel.firstItem = null
         viewModel.lastItem = null
         viewModel.page = 1
@@ -136,7 +139,7 @@ class FeedVoteFragment : BaseFragment<FragmentFeedVoteBinding>() {
     private fun initView() {
         feedDataAdapter =
             FeedDataAdapter(ItemClickListener(), viewModel.feedDataList, viewModel.articleList)
-        feedReplyAdapter = FeedReplyAdapter(viewModel.blackListRepo, ItemClickListener())
+        feedReplyAdapter = FeedReplyAdapter(ItemClickListener())
         footerAdapter = FooterAdapter(ReloadListener())
         sLayoutManager = StaggeredGridLayoutManager(2, 1)
         binding.recyclerView.apply {
@@ -149,6 +152,7 @@ class FeedVoteFragment : BaseFragment<FragmentFeedVoteBinding>() {
 
     inner class ReloadListener : FooterAdapter.FooterListener {
         override fun onReLoad() {
+            viewModel.isEnd = false
             loadMore()
         }
     }
@@ -156,6 +160,7 @@ class FeedVoteFragment : BaseFragment<FragmentFeedVoteBinding>() {
     inner class ItemClickListener : ItemListener {
         override fun onReply(
             id: String,
+            cuid: String,
             uid: String,
             username: String?,
             position: Int,
